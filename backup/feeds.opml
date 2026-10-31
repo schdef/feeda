@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>Feeda Export</title>
+    <dateCreated>Sat, 31 Oct 2026 18:50:06 GMT</dateCreated>
+  </head>
+  <body>
+    <outline text="Lean" title="Lean">
+      <outline type="rss" text="Agile Zone" title="Agile Zone" xmlUrl="https://feeds.dzone.com/agile" htmlUrl="" />
+      <outline type="rss" text="BASIC thinking" title="BASIC thinking" xmlUrl="https://www.basicthinking.de/blog/feed/" htmlUrl="" />
+      <outline type="rss" text="Gründerszene" title="Gründerszene" xmlUrl="https://www.businessinsider.de/gruenderszene/feed/" htmlUrl="" />
+      <outline type="rss" text="The Digital Project Manager" title="The Digital Project Manager" xmlUrl="https://thedigitalprojectmanager.com/feed/" htmlUrl="" />
+    </outline>
+    <outline text="Aktuell" title="Aktuell">
+      <outline type="rss" text="SPIEGEL ONLINE - Schlagzeilen" title="SPIEGEL ONLINE - Schlagzeilen" xmlUrl="https://www.spiegel.de/schlagzeilen/tops/index.rss" htmlUrl="" />
+    </outline>
+    <outline text="Coding" title="Coding">
+      <outline type="rss" text="InfoQ" title="InfoQ" xmlUrl="https://feed.infoq.com/" htmlUrl="" />
+      <outline type="rss" text="The Netflix Tech Blog" title="The Netflix Tech Blog" xmlUrl="https://netflixtechblog.com/feed" htmlUrl="" />
+      <outline type="rss" text="codecentric Blog" title="codecentric Blog" xmlUrl="https://blog.codecentric.de/feed" htmlUrl="" />
+    </outline>
+    <outline text="Serien" title="Serien">
+      <outline type="rss" text="Serienjunkies.de - News" title="Serienjunkies.de - News" xmlUrl="https://www.serienjunkies.de/news/rssfeed.xml" htmlUrl="" />
+    </outline>
+    <outline text="Tech" title="Tech">
+      <outline type="rss" text="Hacker News" title="Hacker News" xmlUrl="https://hnrss.org/frontpage" htmlUrl="https://news.ycombinator.com/" />
+      <outline type="rss" text="Make: DIY Projects and Ideas for Makers" title="Make: DIY Projects and Ideas for Makers" xmlUrl="https://makezine.com/feed/" htmlUrl="https://makezine.com" />
+      <outline type="rss" text="New on MIT Technology Review" title="New on MIT Technology Review" xmlUrl="https://www.technologyreview.com/feed/" htmlUrl="https://www.technologyreview.com" />
+      <outline type="rss" text="Product Hunt" title="Product Hunt" xmlUrl="https://www.producthunt.com/feed" htmlUrl="https://www.producthunt.com" />
+      <outline type="rss" text="TechCrunch" title="TechCrunch" xmlUrl="https://techcrunch.com/feed/" htmlUrl="https://techcrunch.com" />
+      <outline type="rss" text="Technology Review" title="Technology Review" xmlUrl="https://www.heise.de/rss/heise-atom.xml" htmlUrl="https://www.heise.de/tr/" />
+      <outline type="rss" text="The Verge - All Posts" title="The Verge - All Posts" xmlUrl="https://www.theverge.com/rss/index.xml" htmlUrl="https://www.theverge.com" />
+      <outline type="rss" text="TorrentFreak" title="TorrentFreak" xmlUrl="https://torrentfreak.com/feed/" htmlUrl="https://torrentfreak.com" />
+      <outline type="rss" text="haus:automation" title="haus:automation" xmlUrl="https://haus-automatisierung.com/feed.xml" htmlUrl="https://haus-automatisierung.com" />
+      <outline type="rss" text="meintechblog.de" title="meintechblog.de" xmlUrl="https://www.meintechblog.de/feed/" htmlUrl="https://www.meintechblog.de" />
+      <outline type="rss" text="neunetz.com" title="neunetz.com" xmlUrl="https://neunetz.com/feed/" htmlUrl="https://neunetz.com" />
+    </outline>
+    <outline text="Blockchain" title="Blockchain">
+      <outline type="rss" text="BTC-ECHO" title="BTC-ECHO" xmlUrl="https://www.btc-echo.de/feed/" htmlUrl="https://www.btc-echo.de" />
+      <outline type="rss" text="Bitcoin Magazine" title="Bitcoin Magazine" xmlUrl="https://bitcoinmagazine.com/.rss/full/" htmlUrl="https://bitcoinmagazine.com" />
+      <outline type="rss" text="CoinDesk" title="CoinDesk" xmlUrl="https://www.coindesk.com/arc/outboundfeeds/rss/" htmlUrl="https://www.coindesk.com" />
+    </outline>
+  </body>
+</opml>

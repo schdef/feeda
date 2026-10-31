@@ -1,0 +1,17 @@
+{
+  "name": "Feeda - Intelligent RSS Reader",
+  "short_name": "Feeda",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#030712",
+  "theme_color": "#030712",
+  "description": "Self-hosted intelligent RSS reader with offline support",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
