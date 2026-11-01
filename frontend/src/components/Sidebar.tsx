@@ -327,7 +327,7 @@ export function Sidebar() {
                           <Rss size={13} className="text-gray-500 shrink-0" />
                         )}
                         <span className="flex-1 truncate">{feed.title}</span>
-                        {feed.error_count >= 5 && (
+                        {feed.error_count >= 3 && (
                           <button
                             type="button"
                             onClick={(e) => {
@@ -335,7 +335,7 @@ export function Sidebar() {
                               refreshFeed(feed.id);
                             }}
                             className="p-0.5 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 rounded transition-colors shrink-0"
-                            title="Feed having connection issues - click to refresh"
+                            title={feed.last_error ? `Connection issue: ${feed.last_error} - click to retry` : "Feed connection issue - click to retry"}
                           >
                             <AlertTriangle size={12} />
                           </button>
@@ -381,7 +381,7 @@ export function Sidebar() {
                   <Rss size={13} className="text-gray-500 shrink-0" />
                 )}
                 <span className="flex-1 truncate">{feed.title}</span>
-                {feed.error_count >= 5 && (
+                {feed.error_count >= 3 && (
                   <button
                     type="button"
                     onClick={(e) => {
@@ -389,7 +389,7 @@ export function Sidebar() {
                       refreshFeed(feed.id);
                     }}
                     className="p-0.5 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 rounded transition-colors shrink-0"
-                    title="Feed having connection issues - click to refresh"
+                    title={feed.last_error ? `Connection issue: ${feed.last_error} - click to retry` : "Feed connection issue - click to retry"}
                   >
                     <AlertTriangle size={12} />
                   </button>

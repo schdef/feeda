@@ -4,6 +4,8 @@ import logging
 from datetime import datetime
 import re
 import urllib.parse
+import xml.etree.ElementTree as ET
+from email.utils import formatdate
 from ..database import db
 from .feed_parser import parse_entries, decode_html_text
 from .dedup import find_duplicate, url_hash, title_shingles, compute_simhash, update_cluster_primary
@@ -28,6 +30,74 @@ async def fetch_og_image(url: str) -> str | None:
     except Exception:
         pass
     return None
+
+def feedly_to_rss_xml(feedly_json: dict, original_url: str) -> bytes:
+    """
+    Constructs standard RSS 2.0 XML from Feedly Cloud stream JSON.
+    Extracts items: <title>, <link>, <guid>, <description>, <author>, <pubDate>.
+    Returns UTF-8 encoded XML bytes.
+    """
+    rss = ET.Element("rss", version="2.0")
+    channel = ET.SubElement(rss, "channel")
+    feed_title = feedly_json.get("title") or original_url
+    ET.SubElement(channel, "title").text = feed_title
+    ET.SubElement(channel, "link").text = original_url
+    ET.SubElement(channel, "description").text = feed_title
+
+    for it in feedly_json.get("items", []):
+        item_el = ET.SubElement(channel, "item")
+        ET.SubElement(item_el, "title").text = it.get("title", "Untitled")
+
+        # Link
+        link_val = ""
+        alternate = it.get("alternate")
+        if isinstance(alternate, list) and len(alternate) > 0 and isinstance(alternate[0], dict):
+            link_val = alternate[0].get("href", "")
+        if not link_val:
+            link_val = it.get("originId") or it.get("id") or original_url
+        ET.SubElement(item_el, "link").text = link_val
+
+        # Guid
+        guid_val = it.get("originId") or it.get("id") or link_val
+        ET.SubElement(item_el, "guid").text = guid_val
+
+        # Description
+        desc_val = ""
+        summary_obj = it.get("summary")
+        content_obj = it.get("content")
+        if isinstance(content_obj, dict) and content_obj.get("content"):
+            desc_val = content_obj["content"]
+        elif isinstance(summary_obj, dict) and summary_obj.get("content"):
+            desc_val = summary_obj["content"]
+        elif isinstance(summary_obj, str):
+            desc_val = summary_obj
+        elif isinstance(content_obj, str):
+            desc_val = content_obj
+        ET.SubElement(item_el, "description").text = desc_val
+
+        # Author
+        author_val = it.get("author") or ""
+        if author_val:
+            ET.SubElement(item_el, "author").text = author_val
+
+        # pubDate (RFC 822 format from ms timestamp)
+        ms_ts = it.get("published") or it.get("crawled")
+        if ms_ts:
+            try:
+                ET.SubElement(item_el, "pubDate").text = formatdate(ms_ts / 1000.0, usegmt=True)
+            except Exception:
+                pass
+
+        # Visual / enclosure if present
+        visual = it.get("visual")
+        if isinstance(visual, dict) and visual.get("url") and visual.get("url") != "none":
+            ET.SubElement(item_el, "enclosure", url=visual["url"], type="image/jpeg", length="0")
+        elif isinstance(it.get("enclosure"), list):
+            for enc in it["enclosure"]:
+                if isinstance(enc, dict) and enc.get("href"):
+                    ET.SubElement(item_el, "enclosure", url=enc["href"], type=enc.get("type", "image/jpeg"), length=str(enc.get("length", 0)))
+
+    return ET.tostring(rss, encoding="utf-8", xml_declaration=True)
 
 async def fetch_feed_content(url: str, headers: dict) -> tuple[bytes, dict, bool]:
     """
@@ -74,7 +144,23 @@ async def fetch_feed_content(url: str, headers: dict) -> tuple[bytes, dict, bool
             raise
 
         if needs_fallback:
-            logger.info(f"Feed {url} encountered direct issue ({direct_status or direct_err_msg}). Trying proxy fallback...")
+            logger.info(f"Feed {url} encountered direct issue ({direct_status or direct_err_msg}). Trying fallback...")
+
+            # 1. First try Feedly Cloud Stream API
+            try:
+                encoded_url = urllib.parse.quote(url)
+                feedly_url = f"https://cloud.feedly.com/v3/streams/contents?streamId=feed%2F{encoded_url}&count=30"
+                f_resp = await client.get(feedly_url, headers={"User-Agent": "Mozilla/5.0 Feeda/0.1"})
+                if f_resp.status_code == 200:
+                    feedly_json = f_resp.json()
+                    if feedly_json.get("items"):
+                        logger.info(f"Feedly Cloud fallback succeeded for {url} ({len(feedly_json['items'])} items)")
+                        rss_xml = feedly_to_rss_xml(feedly_json, url)
+                        return rss_xml, f_resp.headers, True
+            except Exception as fe:
+                logger.debug(f"Feedly Cloud fallback failed for {url}: {fe}")
+
+            # 2. Proceed with existing proxy list
             encoded_url = urllib.parse.quote(url)
             proxy_urls = [
                 f"https://api.allorigins.win/raw?url={encoded_url}",

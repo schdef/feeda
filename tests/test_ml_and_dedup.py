@@ -746,6 +746,106 @@ async def test_feed_poller_proxy_fallback():
     await db.execute("DELETE FROM articles WHERE feed_id = ?", (feed_id,))
     await db.execute("DELETE FROM feeds WHERE id = ?", (feed_id,))
 
+async def test_feedly_cloud_fallback():
+    print("\n--- 9. Testing Feedly Cloud Fallback & feedly_to_rss_xml ---")
+    import time
+    from feeda.services.feed_poller import feedly_to_rss_xml, fetch_feed_content, poll_single_feed
+    from feeda.services.feed_parser import parse_entries
+    from unittest.mock import patch
+    import httpx
+
+    # 1. Direct unit test of feedly_to_rss_xml
+    sample_feedly_json = {
+        "title": "Feedly Cloud Source",
+        "description": "Feed description from Feedly",
+        "items": [
+            {
+                "id": "feedly-item-12345",
+                "title": "Streamlined Project Management 2026",
+                "alternate": [{"href": "https://example.com/project-mgmt-guide"}],
+                "author": "Dr. Alex Taylor",
+                "published": 1700000000000,
+                "summary": {"content": "<p>A comprehensive overview of agile strategies.</p>"}
+            },
+            {
+                "originId": "feedly-item-67890",
+                "title": "Secondary Post",
+                "alternate": [{"href": "https://example.com/secondary"}],
+                "crawled": 1700003600000,
+                "content": {"content": "<p>Full content text here.</p>"}
+            }
+        ]
+    }
+
+    original_url = "https://feedly-test.example.com/rss.xml"
+    rss_bytes = feedly_to_rss_xml(sample_feedly_json, original_url)
+    assert isinstance(rss_bytes, bytes)
+    assert b"Streamlined Project Management 2026" in rss_bytes
+    assert b"Dr. Alex Taylor" in rss_bytes
+    assert b"feedly-item-12345" in rss_bytes
+    assert b"https://example.com/project-mgmt-guide" in rss_bytes
+
+    entries = parse_entries(rss_bytes)
+    assert len(entries) == 2
+    assert entries[0]["title"] == "Streamlined Project Management 2026"
+    assert entries[0]["url"] == "https://example.com/project-mgmt-guide"
+    assert entries[0]["guid"] == "feedly-item-12345"
+    assert entries[0]["author"] == "Dr. Alex Taylor"
+    assert entries[0]["published_at"] == "2023-11-14T22:13:20+00:00"
+    assert "comprehensive overview" in entries[0]["summary"]
+    print("feedly_to_rss_xml unit test PASSED!")
+
+    # 2. Integration test: mock direct request failure (Cloudflare 403 Turnstile) + Feedly Cloud success
+    dummy_feedly_url = f"https://cloudflare-cf.example.com/feed_{int(time.time()*1000)}.xml"
+    f_id = await db.execute("""
+        INSERT INTO feeds (url, title, poll_interval_minutes, error_count, last_error)
+        VALUES (?, 'CF Protected Feedly Stream', 60, 5, 'Cloudflare 403 Turnstile')
+    """, (dummy_feedly_url,))
+
+    orig_get = httpx.AsyncClient.get
+
+    async def mock_feedly_get(self, url, *args, **kwargs):
+        url_str = str(url)
+        if "cloud.feedly.com" in url_str:
+            return httpx.Response(
+                status_code=200,
+                headers={"Content-Type": "application/json"},
+                json=sample_feedly_json,
+                request=httpx.Request("GET", url_str)
+            )
+        elif "cloudflare-cf.example.com" in url_str:
+            return httpx.Response(
+                status_code=403,
+                headers={"cf-mitigated": "challenge", "Server": "cloudflare"},
+                content=b"<!DOCTYPE html><html><title>Just a moment...</title>Cloudflare Turnstile</html>",
+                request=httpx.Request("GET", url_str)
+            )
+        return await orig_get(self, url, *args, **kwargs)
+
+    with patch.object(httpx.AsyncClient, "get", mock_feedly_get):
+        content, headers, used_fallback = await fetch_feed_content(dummy_feedly_url, {})
+        assert used_fallback is True
+        assert b"Streamlined Project Management 2026" in content
+        print("fetch_feed_content Feedly Cloud fallback PASSED!")
+
+        await poll_single_feed(f_id)
+
+        updated_feed = await db.fetch_one("SELECT * FROM feeds WHERE id = ?", (f_id,))
+        assert updated_feed is not None
+        assert updated_feed["error_count"] == 0
+        assert updated_feed["last_error"] is None
+        assert updated_feed["last_polled_at"] is not None
+
+        art = await db.fetch_one("SELECT * FROM articles WHERE feed_id = ? ORDER BY id ASC", (f_id,))
+        assert art is not None
+        assert art["title"] == "Streamlined Project Management 2026"
+        assert art["author"] == "Dr. Alex Taylor"
+        assert art["published_at"] == "2023-11-14T22:13:20+00:00"
+        print("poll_single_feed Feedly Cloud integration PASSED!")
+
+    await db.execute("DELETE FROM articles WHERE feed_id = ?", (f_id,))
+    await db.execute("DELETE FROM feeds WHERE id = ?", (f_id,))
+
 async def main():
     await test_decode_html_text()
     await test_term_extraction()
@@ -754,6 +854,7 @@ async def main():
     await test_backend_api()
     await test_opml_import_export()
     await test_feed_poller_proxy_fallback()
+    await test_feedly_cloud_fallback()
     print("\nALL TESTS PASSED SUCCESSFULLY!")
     import os
     os._exit(0)
