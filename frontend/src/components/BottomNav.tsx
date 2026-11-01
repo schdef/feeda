@@ -1,4 +1,4 @@
-import { AlignLeft, Bookmark, LayoutGrid, Rss, Search } from 'lucide-react';
+import { AlignLeft, Bookmark, LayoutGrid, Rss, Search, Sparkles } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import clsx from 'clsx';
 
@@ -12,7 +12,11 @@ export function BottomNav() {
     discoverViewOpen,
     setDiscoverViewOpen,
     searchQuery,
-    setSearchQuery
+    setSearchQuery,
+    stats,
+    selectedFeedId,
+    selectedFolderId,
+    selectedBoardId
   } = useAppStore();
 
   const handleSearchClick = () => {
@@ -26,6 +30,8 @@ export function BottomNav() {
     }
   };
 
+  const isForYouActive = filterView === 'for-you' && !discoverViewOpen && !selectedFeedId && !selectedFolderId && !selectedBoardId;
+
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-30 md:hidden bg-gray-950/95 backdrop-blur-md border-t border-gray-800/80 px-4 py-2 flex items-center justify-around h-14">
       {/* 1. Drawer / Feeds List */}
@@ -37,7 +43,25 @@ export function BottomNav() {
         <AlignLeft size={22} />
       </button>
 
-      {/* 2. Read Later (Bookmark) */}
+      {/* 2. For You */}
+      <button
+        onClick={() => {
+          setDiscoverViewOpen(false);
+          setFilterView('for-you');
+        }}
+        className={clsx(
+          "p-2 relative active:scale-95 transition-all flex items-center justify-center",
+          isForYouActive ? "text-amber-400" : "text-gray-400 hover:text-gray-100"
+        )}
+        title="For You"
+      >
+        <Sparkles size={22} className={isForYouActive ? "fill-amber-400/20" : ""} />
+        {Boolean(stats?.for_you_unread_count && stats.for_you_unread_count > 0) && (
+          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-gray-950" />
+        )}
+      </button>
+
+      {/* 3. Read Later (Bookmark) */}
       <button
         onClick={() => {
           setDiscoverViewOpen(false);
@@ -52,7 +76,7 @@ export function BottomNav() {
         <Bookmark size={22} className={filterView === 'starred' ? "fill-emerald-500" : ""} />
       </button>
 
-      {/* 3. View Mode Toggle (Feedly-style green accent) */}
+      {/* 4. View Mode Toggle (Feedly-style green accent) */}
       <button
         onClick={() => setViewMode(viewMode === 'magazine' ? 'compact' : 'magazine')}
         className="p-2 text-gray-400 hover:text-emerald-400 active:scale-95 transition-all flex items-center justify-center"
@@ -61,7 +85,7 @@ export function BottomNav() {
         <LayoutGrid size={22} />
       </button>
 
-      {/* 4. Discover / Add Feed */}
+      {/* 5. Discover / Add Feed */}
       <button
         onClick={() => setDiscoverViewOpen(!discoverViewOpen)}
         className={clsx(
@@ -73,7 +97,7 @@ export function BottomNav() {
         <Rss size={22} />
       </button>
 
-      {/* 5. Search */}
+      {/* 6. Search */}
       <button
         onClick={handleSearchClick}
         className={clsx(

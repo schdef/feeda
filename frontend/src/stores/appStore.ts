@@ -149,7 +149,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   
   viewMode: 'magazine',
   sortMode: 'date',
-  filterView: 'all',
+  filterView: 'for-you',
   likelihoodFilter: 'likely',
   selectedFeedId: null,
   selectedFolderId: null,
