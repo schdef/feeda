@@ -69,6 +69,7 @@ async def refresh_all_feeds(background_tasks: BackgroundTasks):
     return {"status": "refreshing", "count": len(feeds)}
 
 @router.put("/{feed_id}", response_model=FeedResponse)
+@router.patch("/{feed_id}", response_model=FeedResponse)
 async def update_feed(feed_id: int, feed: FeedUpdate):
     updates = []
     params = []
@@ -81,7 +82,10 @@ async def update_feed(feed_id: int, feed: FeedUpdate):
         await db.execute(f"UPDATE feeds SET {', '.join(updates)} WHERE id = ?", tuple(params))
         
     row = await db.fetch_one("SELECT * FROM feeds WHERE id = ?", (feed_id,))
-    row['unread_count'] = 0
+    if not row:
+        raise HTTPException(status_code=404, detail="Feed not found")
+    unread = await db.fetch_one("SELECT COUNT(*) as count FROM articles WHERE feed_id = ? AND is_read = 0", (feed_id,))
+    row['unread_count'] = unread['count'] if unread else 0
     return row
 
 @router.delete("/{feed_id}")

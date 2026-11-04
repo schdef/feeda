@@ -14,7 +14,8 @@ import {
   MoreVertical,
   Pencil,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  FolderInput
 } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import clsx from 'clsx';
@@ -41,6 +42,7 @@ export function Sidebar() {
     selectedFolderId,
     selectFolder,
     setAddFeedModalOpen,
+    setSelectFolderModalOpen,
     setSidebarOpen,
     stats,
     refreshAllFeeds,
@@ -306,7 +308,7 @@ export function Sidebar() {
                       <div 
                         key={feed.id}
                         className={clsx(
-                          "flex items-center gap-2.5 px-2.5 py-1.5 rounded-md cursor-pointer transition-colors text-xs",
+                          "group/feed flex items-center gap-2.5 px-2.5 py-1.5 rounded-md cursor-pointer transition-colors text-xs",
                           selectedFeedId === feed.id 
                             ? "bg-gray-800 text-gray-100 font-medium" 
                             : "text-gray-400 hover:bg-gray-800/40 hover:text-gray-200"
@@ -340,6 +342,17 @@ export function Sidebar() {
                             <AlertTriangle size={12} />
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectFolderModalOpen(true, feed);
+                          }}
+                          className="opacity-70 sm:opacity-0 group-hover/feed:opacity-100 p-0.5 text-gray-400 hover:text-gray-100 hover:bg-gray-700/60 rounded transition-opacity shrink-0"
+                          title="Change folder / group"
+                        >
+                          <FolderInput size={12} />
+                        </button>
                         {feed.unread_count > 0 && (
                           <span className="text-[11px] text-gray-500 font-medium">
                             {formatUnreadCount(feed.unread_count)}
@@ -361,7 +374,7 @@ export function Sidebar() {
               <div 
                 key={feed.id}
                 className={clsx(
-                  "flex items-center gap-2.5 px-3 py-1.5 rounded-md cursor-pointer transition-colors text-xs",
+                  "group/feed flex items-center gap-2.5 px-3 py-1.5 rounded-md cursor-pointer transition-colors text-xs",
                   selectedFeedId === feed.id 
                     ? "bg-gray-800 text-gray-100 font-medium" 
                     : "text-gray-400 hover:bg-gray-800/40 hover:text-gray-200"
@@ -394,6 +407,17 @@ export function Sidebar() {
                     <AlertTriangle size={12} />
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectFolderModalOpen(true, feed);
+                  }}
+                  className="opacity-70 sm:opacity-0 group-hover/feed:opacity-100 p-0.5 text-gray-400 hover:text-gray-100 hover:bg-gray-700/60 rounded transition-opacity shrink-0"
+                  title="Change folder / group"
+                >
+                  <FolderInput size={12} />
+                </button>
                 {feed.unread_count > 0 && (
                   <span className="text-[11px] text-gray-500 font-medium">
                     {formatUnreadCount(feed.unread_count)}

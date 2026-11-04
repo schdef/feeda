@@ -131,7 +131,7 @@ interface AppState {
   markAllAsRead: (olderThan?: '1d' | '1w' | 'all') => Promise<void>;
   addFeed: (url: string, folderId?: number) => Promise<void>;
   updateFeedFolder: (feedId: number, folderId: number | null) => Promise<void>;
-  createFolder: (name: string) => Promise<void>;
+  createFolder: (name: string) => Promise<Folder>;
   deleteFeed: (id: number) => Promise<void>;
   refreshFeed: (id: number) => Promise<void>;
   refreshAllFeeds: () => Promise<void>;
@@ -670,8 +670,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     // Optimistic update
     set((s) => {
       const newFeeds = s.feeds.map(f => f.id === feedId ? { ...f, folder_id: folderId } : f);
-      // Also trigger folder count recalculation if we wanted, but fetchFeeds will do it
-      return { feeds: newFeeds };
+      return { 
+        feeds: newFeeds,
+        targetFeedForFolder: s.targetFeedForFolder?.id === feedId 
+          ? { ...s.targetFeedForFolder, folder_id: folderId } 
+          : s.targetFeedForFolder
+      };
     });
     
     try {
@@ -679,15 +683,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       await get().fetchFeeds();
     } catch (error) {
       console.error('Failed to update feed folder:', error);
-      // Revert is complex without saving previous state, so just fetch to correct it
       await get().fetchFeeds();
+      throw error;
     }
   },
 
   createFolder: async (name) => {
     try {
-      await api.createFolder(name);
+      const folder = await api.createFolder(name);
       await get().fetchFeeds();
+      return folder;
     } catch (error) {
       console.error('Failed to create folder:', error);
       throw error;

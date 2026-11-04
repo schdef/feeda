@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
-import { Check, RefreshCw, MoreVertical, Sparkles, Moon, Eye, EyeOff, FolderKanban, CheckCircle2, CheckCheck } from 'lucide-react';
+import { Check, RefreshCw, MoreVertical, Sparkles, Moon, Eye, EyeOff, FolderKanban, CheckCircle2, CheckCheck, FolderInput } from 'lucide-react';
 import { isToday, isYesterday, format } from 'date-fns';
 import { useAppStore } from '../stores/appStore';
 import { ArticleCard } from './ArticleCard';
@@ -29,6 +29,7 @@ export function ArticleList() {
     feeds,
     folders,
     stats,
+    setSelectFolderModalOpen,
     toggleSidebar,
     refreshFeed,
     refreshAllFeeds,
@@ -87,8 +88,10 @@ export function ArticleList() {
   if (filterView === 'unread') title = 'Unread';
   if (filterView === 'starred') title = 'Read Later';
   if (filterView === 'for-you') title = 'For You';
-  if (selectedFeedId) {
-    title = feeds.find(f => f.id === selectedFeedId)?.title || 'Feed';
+  const selectedFeed = selectedFeedId ? feeds.find(f => f.id === selectedFeedId) : null;
+  const feedFolder = selectedFeed?.folder_id ? folders.find(fol => fol.id === selectedFeed.folder_id) : null;
+  if (selectedFeed) {
+    title = selectedFeed.title || 'Feed';
   }
   if (selectedFolderId) {
     title = folders.find(f => f.id === selectedFolderId)?.name || 'Folder';
@@ -239,14 +242,27 @@ export function ArticleList() {
           </div>
 
           {/* Center: Title & Offline Indicator */}
-          <div className="flex items-center justify-center gap-1.5 max-w-[50%]">
-            <h1 className="font-bold text-gray-100 text-base truncate text-center">
-              {title}
-            </h1>
-            {isOffline && (
-              <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded font-medium shrink-0">
-                Offline
-              </span>
+          <div className="flex flex-col items-center justify-center max-w-[50%] min-w-0">
+            <div className="flex items-center justify-center gap-1.5 max-w-full">
+              <h1 className="font-bold text-gray-100 text-base truncate text-center">
+                {title}
+              </h1>
+              {isOffline && (
+                <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded font-medium shrink-0">
+                  Offline
+                </span>
+              )}
+            </div>
+            {selectedFeed && (
+              <button
+                type="button"
+                onClick={() => setSelectFolderModalOpen(true, selectedFeed)}
+                className="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded text-[11px] font-medium bg-gray-800/80 hover:bg-gray-800 text-gray-300 hover:text-gray-100 border border-gray-700/60 transition-colors cursor-pointer group"
+                title="Change feed grouping / folder"
+              >
+                <FolderInput size={11} className="text-gray-400 group-hover:text-emerald-400 transition-colors shrink-0" />
+                <span className="truncate max-w-[140px]">{feedFolder ? feedFolder.name : 'No Folder (Uncategorized)'}</span>
+              </button>
             )}
           </div>
 
@@ -340,6 +356,18 @@ export function ArticleList() {
                       className="w-full text-left px-3 py-2 hover:bg-gray-800 text-gray-300"
                     >
                       Refresh this feed
+                    </button>
+                  )}
+                  {selectedFeed && (
+                    <button
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setSelectFolderModalOpen(true, selectedFeed);
+                      }}
+                      className="w-full text-left px-3 py-2 hover:bg-gray-800 text-gray-300 flex items-center gap-2"
+                    >
+                      <FolderInput size={13} className="text-gray-400" />
+                      <span>Change Folder / Grouping...</span>
                     </button>
                   )}
                 </div>
