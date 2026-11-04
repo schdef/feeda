@@ -231,13 +231,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       } else if (state.selectedBoardId) {
         response = await api.getBoardArticles(state.selectedBoardId);
       } else if (state.filterView === 'for-you') {
-        response = await api.getForYouArticles(currentPage, 50, state.showRead ? undefined : false);
+        response = await api.getForYouArticles(currentPage, 50, state.showRead ? undefined : false, state.sortMode || 'date');
       } else {
         const isFeedOrFolder = Boolean(state.selectedFeedId || state.selectedFolderId);
         const params: any = {
           page: currentPage,
           limit: 50,
-          sort: isFeedOrFolder ? (state.sortMode || 'date') : state.sortMode,
+          sort: state.sortMode || 'date',
           likelihood: isFeedOrFolder ? (state.likelihoodFilter === 'likely' ? 'all' : (state.likelihoodFilter || 'all')) : state.likelihoodFilter,
         };
         if (state.selectedFeedId) params.feed_id = state.selectedFeedId;
@@ -382,6 +382,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setFilterView: (view) => {
     set({ 
       filterView: view, 
+      sortMode: 'date',
       selectedFeedId: null, 
       selectedFolderId: null, 
       selectedBoardId: null,

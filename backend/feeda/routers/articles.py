@@ -94,13 +94,14 @@ async def list_articles(
         if score_spread > 0.05:
             where.append("a.interest_score >= ?")
             params.append(likely_threshold)
-        order_clause = "ORDER BY a.interest_score DESC, a.published_at DESC"
     elif effective_likelihood == "not_likely":
         where.append("a.interest_score < ?")
         params.append(likely_threshold)
-        order_clause = "ORDER BY a.interest_score ASC, a.published_at DESC"
+
+    if sort == "date":
+        order_clause = "ORDER BY a.published_at DESC"
     else:
-        order_clause = "ORDER BY a.published_at DESC" if sort == "date" else "ORDER BY a.interest_score DESC, a.published_at DESC"
+        order_clause = "ORDER BY a.interest_score ASC, a.published_at DESC" if effective_likelihood == "not_likely" else "ORDER BY a.interest_score DESC, a.published_at DESC"
 
     if dedup:
         where.append("""(a.cluster_id IS NULL OR a.id = (
@@ -171,7 +172,8 @@ async def for_you(
     page: int = 1,
     limit: int = 50,
     is_read: Optional[Union[bool, str]] = Query(False),
-    dedup: bool = Query(True)
+    dedup: bool = Query(True),
+    sort: str = Query("date", pattern="^(date|score)$")
 ):
     if hasattr(is_read, "default"):
         is_read = is_read.default
@@ -212,6 +214,7 @@ async def for_you(
         ))""")
 
     where_clause = f"WHERE {' AND '.join(where)}"
+    order_clause = "ORDER BY a.published_at DESC" if sort == "date" else "ORDER BY a.interest_score DESC, a.published_at DESC"
 
     query = f"""
         SELECT a.*, 
@@ -225,7 +228,7 @@ async def for_you(
         FROM articles a
         LEFT JOIN feeds f ON a.feed_id = f.id
         {where_clause}
-        ORDER BY a.interest_score DESC, a.published_at DESC
+        {order_clause}
         LIMIT ? OFFSET ?
     """
     items = await db.fetch_all(query, tuple(params + [limit, offset]))

@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
-import { Check, RefreshCw, MoreVertical, Sparkles, Moon, Eye, EyeOff, FolderKanban, CheckCircle2, CheckCheck, FolderInput } from 'lucide-react';
+import { Check, RefreshCw, MoreVertical, Sparkles, Moon, Eye, EyeOff, FolderKanban, CheckCircle2, CheckCheck, FolderInput, ArrowUpDown } from 'lucide-react';
 import { isToday, isYesterday, format } from 'date-fns';
 import { useAppStore } from '../stores/appStore';
 import { ArticleCard } from './ArticleCard';
@@ -152,6 +152,39 @@ export function ArticleList() {
   const groupedArticles = useMemo(() => {
     if (visibleArticles.length === 0) return [];
 
+    if (sortMode === 'date') {
+      const sortedByDate = [...visibleArticles].sort((a, b) => {
+        const dateA = a.published_at ? new Date(a.published_at).getTime() : 0;
+        const dateB = b.published_at ? new Date(b.published_at).getTime() : 0;
+        return dateB - dateA;
+      });
+
+      const groups: { dateHeader: string; items: typeof articles }[] = [];
+      let currentHeader = '';
+
+      for (const article of sortedByDate) {
+        let header = 'Older';
+        if (article.published_at) {
+          const date = new Date(article.published_at);
+          if (isToday(date)) {
+            header = 'Today';
+          } else if (isYesterday(date)) {
+            header = 'Yesterday';
+          } else {
+            header = format(date, 'MMM d, yyyy');
+          }
+        }
+
+        if (header !== currentHeader) {
+          groups.push({ dateHeader: header, items: [article] });
+          currentHeader = header;
+        } else {
+          groups[groups.length - 1].items.push(article);
+        }
+      }
+      return groups;
+    }
+
     if (likelihoodFilter === 'likely') {
       const getArticleTier = (article: Article): 'high' | 'medium' | 'low' => {
         if (article.likelihood_tier === 'high') return 'high';
@@ -223,7 +256,7 @@ export function ArticleList() {
       }
     }
     return groups;
-  }, [visibleArticles, likelihoodFilter]);
+  }, [visibleArticles, likelihoodFilter, sortMode]);
 
   return (
     <div className="flex flex-col h-full bg-gray-950 text-gray-200">
@@ -268,6 +301,18 @@ export function ArticleList() {
 
           {/* Right: Refresh, Checkmark (mark read options) and Three dots (options) */}
           <div className="flex items-center gap-1 text-gray-400 relative">
+            <button
+              onClick={() => setSortMode(sortMode === 'date' ? 'score' : 'date')}
+              className={clsx(
+                "p-1.5 rounded-md transition-colors flex items-center gap-1 text-xs",
+                sortMode === 'date' ? "text-blue-400 hover:bg-gray-800/60" : "text-gray-400 hover:text-gray-100 hover:bg-gray-800/60"
+              )}
+              title={`Sorted by: ${sortMode === 'date' ? 'Date (Newest first)' : 'Relevance (Score)'}. Click to switch.`}
+            >
+              <ArrowUpDown size={17} />
+              <span className="hidden sm:inline text-[11px] font-medium capitalize">{sortMode}</span>
+            </button>
+
             <button 
               onClick={() => refreshAllFeeds()}
               disabled={isRefreshing}

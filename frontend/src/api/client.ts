@@ -120,7 +120,7 @@ export const api = {
     });
     return fetchApi<ArticleListResponse>(`/articles?${searchParams.toString()}`);
   },
-  getForYouArticles: (page?: number, limit?: number, is_read?: boolean | string) => {
+  getForYouArticles: (page?: number, limit?: number, is_read?: boolean | string, sort?: 'date' | 'score') => {
     const searchParams = new URLSearchParams();
     if (page !== undefined) searchParams.append('page', page.toString());
     if (limit !== undefined) searchParams.append('limit', limit.toString());
@@ -128,6 +128,9 @@ export const api = {
       searchParams.append('is_read', is_read.toString());
     } else {
       searchParams.append('is_read', 'all');
+    }
+    if (sort !== undefined) {
+      searchParams.append('sort', sort);
     }
     return fetchApi<ArticleListResponse>(`/articles/for-you?${searchParams.toString()}`);
   },
