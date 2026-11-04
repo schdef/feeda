@@ -24,7 +24,10 @@ async def get_stats():
     for_you_threshold = await get_for_you_threshold()
     for_you_row = await db.fetch_one("""
         SELECT COUNT(*) as c FROM articles a 
-        WHERE a.is_read = 0 AND a.interest_score >= ? AND (
+        WHERE a.is_read = 0 
+          AND a.interest_score >= ? 
+          AND (a.published_at IS NULL OR datetime(a.published_at) >= datetime('now', '-6 months'))
+          AND (
             a.cluster_id IS NULL OR a.id = (
                 SELECT a2.id FROM articles a2 
                 WHERE a2.cluster_id = a.cluster_id 

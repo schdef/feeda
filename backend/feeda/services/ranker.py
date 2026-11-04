@@ -106,9 +106,12 @@ async def score_article(article: dict, db) -> float:
         try:
             pub = parser.parse(article['published_at']).replace(tzinfo=None)
             hours_old = (datetime.utcnow() - pub).total_seconds() / 3600.0
+            # 6 months = 182.5 days * 24 hours = 4380 hours
+            if hours_old > 4380:
+                return 0.0
             if hours_old > 0:
                 s_freshness = math.exp(-0.0288 * hours_old) # half-life 24h
-        except:
+        except Exception:
             pass
 
     s_explicit = float(article.get('user_vote', 0)) * 2.0
@@ -131,10 +134,15 @@ async def score_article(article: dict, db) -> float:
     return round(score, 4)
 
 async def rescore_articles(db):
+    await db.execute("""
+        UPDATE articles 
+        SET interest_score = 0.0 
+        WHERE datetime(published_at) < datetime('now', '-6 months') AND interest_score != 0.0
+    """)
     articles = await db.fetch_all("""
         SELECT id, feed_id, title, summary, content, published_at, user_vote, is_starred 
         FROM articles 
-        WHERE is_read = 0
+        WHERE is_read = 0 AND (published_at IS NULL OR datetime(published_at) >= datetime('now', '-6 months'))
     """)
     for a in articles:
         score = await score_article(a, db)

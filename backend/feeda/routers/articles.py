@@ -9,19 +9,35 @@ from ..services.feed_parser import decode_html_text
 router = APIRouter(prefix="/api/articles", tags=["articles"])
 
 async def get_likelihood_thresholds():
-    stats = await db.fetch_one("SELECT AVG(interest_score) as avg_score, MIN(interest_score) as min_score, MAX(interest_score) as max_score FROM articles WHERE is_read = 0")
+    stats = await db.fetch_one("""
+        SELECT AVG(interest_score) as avg_score, MIN(interest_score) as min_score, MAX(interest_score) as max_score 
+        FROM articles 
+        WHERE is_read = 0 AND (published_at IS NULL OR datetime(published_at) >= datetime('now', '-6 months'))
+    """)
     if not stats or stats.get('avg_score') is None:
-        stats = await db.fetch_one("SELECT AVG(interest_score) as avg_score, MIN(interest_score) as min_score, MAX(interest_score) as max_score FROM articles")
+        stats = await db.fetch_one("""
+            SELECT AVG(interest_score) as avg_score, MIN(interest_score) as min_score, MAX(interest_score) as max_score 
+            FROM articles 
+            WHERE published_at IS NULL OR datetime(published_at) >= datetime('now', '-6 months')
+        """)
     avg_score = float(stats['avg_score']) if stats and stats.get('avg_score') is not None else 0.0
     min_score = float(stats['min_score']) if stats and stats.get('min_score') is not None else 0.0
     max_score = float(stats['max_score']) if stats and stats.get('max_score') is not None else 0.0
 
     likely_threshold = avg_score
 
-    rows = await db.fetch_all("SELECT interest_score FROM articles WHERE is_read = 0 ORDER BY interest_score DESC")
+    rows = await db.fetch_all("""
+        SELECT interest_score FROM articles 
+        WHERE is_read = 0 AND (published_at IS NULL OR datetime(published_at) >= datetime('now', '-6 months'))
+        ORDER BY interest_score DESC
+    """)
     scores = [float(r['interest_score']) for r in rows if r.get('interest_score') is not None]
     if not scores:
-        rows = await db.fetch_all("SELECT interest_score FROM articles ORDER BY interest_score DESC")
+        rows = await db.fetch_all("""
+            SELECT interest_score FROM articles 
+            WHERE published_at IS NULL OR datetime(published_at) >= datetime('now', '-6 months')
+            ORDER BY interest_score DESC
+        """)
         scores = [float(r['interest_score']) for r in rows if r.get('interest_score') is not None]
 
     if not scores or len(scores) < 10:
@@ -97,6 +113,9 @@ async def list_articles(
     elif effective_likelihood == "not_likely":
         where.append("a.interest_score < ?")
         params.append(likely_threshold)
+
+    if effective_likelihood == "likely" or sort == "score":
+        where.append("(a.published_at IS NULL OR datetime(a.published_at) >= datetime('now', '-6 months'))")
 
     if sort == "date":
         order_clause = "ORDER BY a.published_at DESC"
@@ -200,6 +219,8 @@ async def for_you(
 
     where = ["a.interest_score >= ?"]
     params = [threshold]
+
+    where.append("(a.published_at IS NULL OR datetime(a.published_at) >= datetime('now', '-6 months'))")
 
     if actual_is_read is not None:
         where.append("a.is_read = ?")
