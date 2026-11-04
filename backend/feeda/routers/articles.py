@@ -83,7 +83,12 @@ async def list_articles(
     likely_threshold, high_threshold, min_score, max_score = await get_likelihood_thresholds()
     score_spread = max_score - min_score
 
-    effective_likelihood = likelihood if likelihood is not None else ("all" if today else "likely")
+    if likelihood is not None:
+        effective_likelihood = likelihood
+    elif today or feed_id or folder_id:
+        effective_likelihood = "all"
+    else:
+        effective_likelihood = "likely"
 
     if effective_likelihood == "likely":
         if score_spread > 0.05:
@@ -126,7 +131,8 @@ async def list_articles(
     
     count_query = f"SELECT COUNT(*) as total FROM articles a LEFT JOIN feeds f ON a.feed_id = f.id {where_clause}"
     
-    items = await db.fetch_all(query, tuple(params + [limit, offset]))
+    fetch_limit = min(limit * 2, 200) if dedup else limit
+    items = await db.fetch_all(query, tuple(params + [fetch_limit, offset]))
     for item in items:
         item['is_read'] = bool(item['is_read'])
         item['is_starred'] = bool(item['is_starred'])
@@ -147,6 +153,7 @@ async def list_articles(
         if not feed_id and not folder_id:
             if any(not a.get("cluster_id") for a in items):
                 asyncio.create_task(cluster_unclustered_articles_background(db))
+        items = items[:limit]
     
     total_row = await db.fetch_one(count_query, tuple(params))
     
