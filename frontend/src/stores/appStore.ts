@@ -79,6 +79,7 @@ interface AppState {
   
   selectFolderModalOpen: boolean;
   targetFeedForFolder: Feed | null;
+  manageFeedsModalOpen: boolean;
   discoverViewOpen: boolean;
   shortcutsModalOpen: boolean;
   boardSwitcherModalOpen: boolean;
@@ -107,6 +108,7 @@ interface AppState {
   toggleSidebar: () => void;
   setAddFeedModalOpen: (open: boolean) => void;
   setSelectFolderModalOpen: (open: boolean, feed?: Feed | null) => void;
+  setManageFeedsModalOpen: (open: boolean) => void;
   setSaveToBoardModalOpen: (open: boolean, article?: Article | null) => void;
   setCreateBoardModalOpen: (open: boolean, board?: Board | null) => void;
   setShortcutsModalOpen: (open: boolean) => void;
@@ -131,7 +133,10 @@ interface AppState {
   markAllAsRead: (olderThan?: '1d' | '1w' | 'all') => Promise<void>;
   addFeed: (url: string, folderId?: number) => Promise<void>;
   updateFeedFolder: (feedId: number, folderId: number | null) => Promise<void>;
+  updateFeedTitle: (id: number, title: string) => Promise<void>;
   createFolder: (name: string) => Promise<Folder>;
+  updateFolder: (id: number, name: string) => Promise<void>;
+  deleteFolder: (id: number) => Promise<void>;
   deleteFeed: (id: number) => Promise<void>;
   refreshFeed: (id: number) => Promise<void>;
   refreshAllFeeds: () => Promise<void>;
@@ -163,6 +168,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   addFeedModalOpen: false,
   selectFolderModalOpen: false,
   targetFeedForFolder: null,
+  manageFeedsModalOpen: false,
   discoverViewOpen: false,
   shortcutsModalOpen: false,
   boardSwitcherModalOpen: false,
@@ -406,6 +412,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setAddFeedModalOpen: (open) => set({ addFeedModalOpen: open }),
   setSelectFolderModalOpen: (open, feed) => set({ selectFolderModalOpen: open, targetFeedForFolder: feed || null }),
+  setManageFeedsModalOpen: (open) => set({ manageFeedsModalOpen: open }),
   setSaveToBoardModalOpen: (open, article) => set({ saveToBoardModalOpen: open, targetArticleForBoard: article || null }),
   setCreateBoardModalOpen: (open, board) => set({ createBoardModalOpen: open, editingBoard: board || null }),
   setShortcutsModalOpen: (open) => set({ shortcutsModalOpen: open }),
@@ -694,6 +701,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  updateFeedTitle: async (id, title) => {
+    try {
+      await api.updateFeed(id, { title });
+      await get().fetchFeeds();
+    } catch (error) {
+      console.error('Failed to update feed title:', error);
+      throw error;
+    }
+  },
+
   createFolder: async (name) => {
     try {
       const folder = await api.createFolder(name);
@@ -705,12 +722,39 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  updateFolder: async (id, name) => {
+    try {
+      await api.updateFolder(id, name);
+      await get().fetchFeeds();
+    } catch (error) {
+      console.error('Failed to update folder:', error);
+      throw error;
+    }
+  },
+
+  deleteFolder: async (id) => {
+    try {
+      await api.deleteFolder(id);
+      if (get().selectedFolderId === id) {
+        set({ selectedFolderId: null, filterView: 'for-you' });
+      }
+      await Promise.all([get().fetchFeeds(), get().fetchArticles(true), get().fetchStats()]);
+    } catch (error) {
+      console.error('Failed to delete folder:', error);
+      throw error;
+    }
+  },
+
   deleteFeed: async (id) => {
     try {
       await api.deleteFeed(id);
-      await get().fetchFeeds();
+      if (get().selectedFeedId === id) {
+        set({ selectedFeedId: null, filterView: 'for-you' });
+      }
+      await Promise.all([get().fetchFeeds(), get().fetchArticles(true), get().fetchStats()]);
     } catch (error) {
       console.error('Failed to delete feed:', error);
+      throw error;
     }
   },
 

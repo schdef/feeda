@@ -6,6 +6,7 @@ import { SaveToBoardModal } from './SaveToBoardModal';
 import { CreateBoardModal } from './CreateBoardModal';
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
 import { BoardSwitcherModal } from './BoardSwitcherModal';
+import { ManageFeedsModal } from './ManageFeedsModal';
 import { BottomNav } from './BottomNav';
 
 interface LayoutProps {
@@ -67,6 +68,7 @@ export function Layout({ sidebar, articleList, articleReader }: LayoutProps) {
       <CreateBoardModal />
       <KeyboardShortcutsModal />
       <BoardSwitcherModal />
+      <ManageFeedsModal />
     </div>
   );
 }

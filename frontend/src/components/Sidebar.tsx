@@ -15,7 +15,8 @@ import {
   Pencil,
   Trash2,
   AlertTriangle,
-  FolderInput
+  FolderInput,
+  SlidersHorizontal
 } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import clsx from 'clsx';
@@ -43,6 +44,11 @@ export function Sidebar() {
     selectFolder,
     setAddFeedModalOpen,
     setSelectFolderModalOpen,
+    setManageFeedsModalOpen,
+    updateFolder,
+    deleteFolder,
+    updateFeedTitle,
+    deleteFeed,
     setSidebarOpen,
     stats,
     refreshAllFeeds,
@@ -54,9 +60,15 @@ export function Sidebar() {
     1: true // Keep default folder expanded if any
   });
   const [menuBoardId, setMenuBoardId] = useState<number | null>(null);
+  const [menuFolderId, setMenuFolderId] = useState<number | null>(null);
+  const [menuFeedId, setMenuFeedId] = useState<number | null>(null);
 
   useEffect(() => {
-    const handleOutsideClick = () => setMenuBoardId(null);
+    const handleOutsideClick = () => {
+      setMenuBoardId(null);
+      setMenuFolderId(null);
+      setMenuFeedId(null);
+    };
     window.addEventListener('click', handleOutsideClick);
     return () => window.removeEventListener('click', handleOutsideClick);
   }, []);
@@ -88,7 +100,7 @@ export function Sidebar() {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setAddFeedModalOpen(true)}
+            onClick={() => setManageFeedsModalOpen(true)}
             className="text-xs font-semibold text-gray-400 hover:text-gray-200 transition-colors"
           >
             Manage Feeds
@@ -240,14 +252,30 @@ export function Sidebar() {
         <div>
           <div className="px-3 py-1.5 flex items-center justify-between">
             <h2 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Feeds</h2>
-            <button 
-              onClick={refreshAllFeeds} 
-              disabled={isRefreshing}
-              className="p-1 text-gray-500 hover:text-gray-300 rounded transition-colors" 
-              title="Refresh all feeds"
-            >
-              <RefreshCw size={13} className={isRefreshing ? "animate-spin text-blue-400" : ""} />
-            </button>
+            <div className="flex items-center gap-0.5">
+              <button 
+                onClick={() => setManageFeedsModalOpen(true)}
+                className="p-1 text-gray-500 hover:text-gray-300 rounded transition-colors" 
+                title="Manage Feeds & Categories"
+              >
+                <SlidersHorizontal size={13} />
+              </button>
+              <button 
+                onClick={() => setAddFeedModalOpen(true)}
+                className="p-1 text-gray-500 hover:text-gray-300 rounded transition-colors" 
+                title="Add Feed"
+              >
+                <Plus size={14} />
+              </button>
+              <button 
+                onClick={refreshAllFeeds} 
+                disabled={isRefreshing}
+                className="p-1 text-gray-500 hover:text-gray-300 rounded transition-colors" 
+                title="Refresh all feeds"
+              >
+                <RefreshCw size={13} className={isRefreshing ? "animate-spin text-blue-400" : ""} />
+              </button>
+            </div>
           </div>
 
         {/* "All" item */}
@@ -277,7 +305,7 @@ export function Sidebar() {
             const isSelected = selectedFolderId === folder.id;
 
             return (
-              <div key={folder.id} className="group">
+              <div key={folder.id} className="relative group">
                 <div 
                   className={clsx(
                     "flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer transition-colors text-sm",
@@ -299,64 +327,155 @@ export function Sidebar() {
                       {formatUnreadCount(folder.unread_count)}
                     </span>
                   )}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMenuFolderId(menuFolderId === folder.id ? null : folder.id);
+                      setMenuFeedId(null);
+                      setMenuBoardId(null);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-500 hover:text-gray-300 rounded transition-opacity shrink-0"
+                    title="Category options"
+                  >
+                    <MoreVertical size={14} />
+                  </button>
                 </div>
+
+                {menuFolderId === folder.id && (
+                  <div 
+                    className="absolute right-2 top-8 z-30 w-40 bg-gray-900 border border-gray-800 rounded-lg shadow-xl py-1 text-xs text-gray-200"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      onClick={async () => {
+                        setMenuFolderId(null);
+                        const newName = prompt('Enter new category name:', folder.name);
+                        if (newName && newName.trim() && newName.trim() !== folder.name) {
+                          await updateFolder(folder.id, newName.trim());
+                        }
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-800 text-left text-gray-300 hover:text-gray-100"
+                    >
+                      <Pencil size={13} />
+                      <span>Rename Category</span>
+                    </button>
+                    <button
+                      onClick={async () => {
+                        setMenuFolderId(null);
+                        if (confirm(`Delete category "${folder.name}"? Feeds will be moved to Uncategorized.`)) {
+                          await deleteFolder(folder.id);
+                        }
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-red-500/20 text-left text-red-400 hover:text-red-300"
+                    >
+                      <Trash2 size={13} />
+                      <span>Delete Category</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* Indented feeds list under folder */}
                 {isExpanded && (
                   <div className="ml-5 space-y-0.5 pl-2 border-l border-gray-800/60 my-0.5">
                     {folderFeeds.map(feed => (
-                      <div 
-                        key={feed.id}
-                        className={clsx(
-                          "group/feed flex items-center gap-2.5 px-2.5 py-1.5 rounded-md cursor-pointer transition-colors text-xs",
-                          selectedFeedId === feed.id 
-                            ? "bg-gray-800 text-gray-100 font-medium" 
-                            : "text-gray-400 hover:bg-gray-800/40 hover:text-gray-200"
-                        )}
-                        onClick={() => selectFeed(feed.id)}
-                      >
-                        {feed.favicon_url ? (
-                          <img 
-                            src={feed.favicon_url} 
-                            alt="" 
-                            className="w-4 h-4 rounded-sm object-contain shrink-0"
-                            onError={(e) => {
-                              // Fallback on broken favicon
-                              (e.target as HTMLElement).style.display = 'none';
-                            }}
-                          />
-                        ) : (
-                          <Rss size={13} className="text-gray-500 shrink-0" />
-                        )}
-                        <span className="flex-1 truncate">{feed.title}</span>
-                        {feed.error_count >= 3 && (
+                      <div key={feed.id} className="relative group/feed">
+                        <div 
+                          className={clsx(
+                            "flex items-center gap-2 px-2.5 py-1.5 rounded-md cursor-pointer transition-colors text-xs",
+                            selectedFeedId === feed.id 
+                              ? "bg-gray-800 text-gray-100 font-medium" 
+                              : "text-gray-400 hover:bg-gray-800/40 hover:text-gray-200"
+                          )}
+                          onClick={() => selectFeed(feed.id)}
+                        >
+                          {feed.favicon_url ? (
+                            <img 
+                              src={feed.favicon_url} 
+                              alt="" 
+                              className="w-4 h-4 rounded-xs object-contain shrink-0"
+                              onError={(e) => {
+                                // Fallback on broken favicon
+                                (e.target as HTMLElement).style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <Rss size={13} className="text-gray-500 shrink-0" />
+                          )}
+                          <span className="flex-1 truncate">{feed.title}</span>
+                          {feed.error_count >= 3 && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                refreshFeed(feed.id);
+                              }}
+                              className="p-0.5 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 rounded transition-colors shrink-0"
+                              title={feed.last_error ? `Connection issue: ${feed.last_error} - click to retry` : "Feed connection issue - click to retry"}
+                            >
+                              <AlertTriangle size={12} />
+                            </button>
+                          )}
+                          {feed.unread_count > 0 && (
+                            <span className="text-[11px] text-gray-500 font-medium shrink-0">
+                              {formatUnreadCount(feed.unread_count)}
+                            </span>
+                          )}
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              refreshFeed(feed.id);
+                              setMenuFeedId(menuFeedId === feed.id ? null : feed.id);
+                              setMenuFolderId(null);
+                              setMenuBoardId(null);
                             }}
-                            className="p-0.5 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 rounded transition-colors shrink-0"
-                            title={feed.last_error ? `Connection issue: ${feed.last_error} - click to retry` : "Feed connection issue - click to retry"}
+                            className="opacity-70 sm:opacity-0 group-hover/feed:opacity-100 p-0.5 text-gray-400 hover:text-gray-100 hover:bg-gray-700/60 rounded transition-opacity shrink-0"
+                            title="Feed options"
                           >
-                            <AlertTriangle size={12} />
+                            <MoreVertical size={13} />
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectFolderModalOpen(true, feed);
-                          }}
-                          className="opacity-70 sm:opacity-0 group-hover/feed:opacity-100 p-0.5 text-gray-400 hover:text-gray-100 hover:bg-gray-700/60 rounded transition-opacity shrink-0"
-                          title="Change folder / group"
-                        >
-                          <FolderInput size={12} />
-                        </button>
-                        {feed.unread_count > 0 && (
-                          <span className="text-[11px] text-gray-500 font-medium">
-                            {formatUnreadCount(feed.unread_count)}
-                          </span>
+                        </div>
+
+                        {menuFeedId === feed.id && (
+                          <div 
+                            className="absolute right-2 top-7 z-30 w-44 bg-gray-900 border border-gray-800 rounded-lg shadow-xl py-1 text-xs text-gray-200"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              onClick={() => {
+                                setMenuFeedId(null);
+                                setSelectFolderModalOpen(true, feed);
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-800 text-left text-gray-300 hover:text-gray-100"
+                            >
+                              <FolderInput size={13} />
+                              <span>Change Category...</span>
+                            </button>
+                            <button
+                              onClick={async () => {
+                                setMenuFeedId(null);
+                                const newTitle = prompt('Enter new feed title:', feed.title);
+                                if (newTitle && newTitle.trim() && newTitle.trim() !== feed.title) {
+                                  await updateFeedTitle(feed.id, newTitle.trim());
+                                }
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-800 text-left text-gray-300 hover:text-gray-100"
+                            >
+                              <Pencil size={13} />
+                              <span>Rename Feed...</span>
+                            </button>
+                            <button
+                              onClick={async () => {
+                                setMenuFeedId(null);
+                                if (confirm(`Delete feed "${feed.title}" and all its articles?`)) {
+                                  await deleteFeed(feed.id);
+                                }
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-red-500/20 text-left text-red-400 hover:text-red-300"
+                            >
+                              <Trash2 size={13} />
+                              <span>Delete Feed...</span>
+                            </button>
+                          </div>
                         )}
                       </div>
                     ))}
@@ -371,57 +490,103 @@ export function Sidebar() {
         {uncategorizedFeeds.length > 0 && (
           <div className="mt-3 pt-2 border-t border-gray-800/50 space-y-0.5">
             {uncategorizedFeeds.map(feed => (
-              <div 
-                key={feed.id}
-                className={clsx(
-                  "group/feed flex items-center gap-2.5 px-3 py-1.5 rounded-md cursor-pointer transition-colors text-xs",
-                  selectedFeedId === feed.id 
-                    ? "bg-gray-800 text-gray-100 font-medium" 
-                    : "text-gray-400 hover:bg-gray-800/40 hover:text-gray-200"
-                )}
-                onClick={() => selectFeed(feed.id)}
-              >
-                {feed.favicon_url ? (
-                  <img 
-                    src={feed.favicon_url} 
-                    alt="" 
-                    className="w-4 h-4 rounded-sm object-contain shrink-0"
-                    onError={(e) => {
-                      (e.target as HTMLElement).style.display = 'none';
-                    }}
-                  />
-                ) : (
-                  <Rss size={13} className="text-gray-500 shrink-0" />
-                )}
-                <span className="flex-1 truncate">{feed.title}</span>
-                {feed.error_count >= 3 && (
+              <div key={feed.id} className="relative group/feed">
+                <div 
+                  className={clsx(
+                    "flex items-center gap-2 px-3 py-1.5 rounded-md cursor-pointer transition-colors text-xs",
+                    selectedFeedId === feed.id 
+                      ? "bg-gray-800 text-gray-100 font-medium" 
+                      : "text-gray-400 hover:bg-gray-800/40 hover:text-gray-200"
+                  )}
+                  onClick={() => selectFeed(feed.id)}
+                >
+                  {feed.favicon_url ? (
+                    <img 
+                      src={feed.favicon_url} 
+                      alt="" 
+                      className="w-4 h-4 rounded-xs object-contain shrink-0"
+                      onError={(e) => {
+                        (e.target as HTMLElement).style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <Rss size={13} className="text-gray-500 shrink-0" />
+                  )}
+                  <span className="flex-1 truncate">{feed.title}</span>
+                  {feed.error_count >= 3 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        refreshFeed(feed.id);
+                      }}
+                      className="p-0.5 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 rounded transition-colors shrink-0"
+                      title={feed.last_error ? `Connection issue: ${feed.last_error} - click to retry` : "Feed connection issue - click to retry"}
+                    >
+                      <AlertTriangle size={12} />
+                    </button>
+                  )}
+                  {feed.unread_count > 0 && (
+                    <span className="text-[11px] text-gray-500 font-medium shrink-0">
+                      {formatUnreadCount(feed.unread_count)}
+                    </span>
+                  )}
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      refreshFeed(feed.id);
+                      setMenuFeedId(menuFeedId === feed.id ? null : feed.id);
+                      setMenuFolderId(null);
+                      setMenuBoardId(null);
                     }}
-                    className="p-0.5 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 rounded transition-colors shrink-0"
-                    title={feed.last_error ? `Connection issue: ${feed.last_error} - click to retry` : "Feed connection issue - click to retry"}
+                    className="opacity-70 sm:opacity-0 group-hover/feed:opacity-100 p-0.5 text-gray-400 hover:text-gray-100 hover:bg-gray-700/60 rounded transition-opacity shrink-0"
+                    title="Feed options"
                   >
-                    <AlertTriangle size={12} />
+                    <MoreVertical size={13} />
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectFolderModalOpen(true, feed);
-                  }}
-                  className="opacity-70 sm:opacity-0 group-hover/feed:opacity-100 p-0.5 text-gray-400 hover:text-gray-100 hover:bg-gray-700/60 rounded transition-opacity shrink-0"
-                  title="Change folder / group"
-                >
-                  <FolderInput size={12} />
-                </button>
-                {feed.unread_count > 0 && (
-                  <span className="text-[11px] text-gray-500 font-medium">
-                    {formatUnreadCount(feed.unread_count)}
-                  </span>
+                </div>
+
+                {menuFeedId === feed.id && (
+                  <div 
+                    className="absolute right-2 top-7 z-30 w-44 bg-gray-900 border border-gray-800 rounded-lg shadow-xl py-1 text-xs text-gray-200"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      onClick={() => {
+                        setMenuFeedId(null);
+                        setSelectFolderModalOpen(true, feed);
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-800 text-left text-gray-300 hover:text-gray-100"
+                    >
+                      <FolderInput size={13} />
+                      <span>Change Category...</span>
+                    </button>
+                    <button
+                      onClick={async () => {
+                        setMenuFeedId(null);
+                        const newTitle = prompt('Enter new feed title:', feed.title);
+                        if (newTitle && newTitle.trim() && newTitle.trim() !== feed.title) {
+                          await updateFeedTitle(feed.id, newTitle.trim());
+                        }
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-800 text-left text-gray-300 hover:text-gray-100"
+                    >
+                      <Pencil size={13} />
+                      <span>Rename Feed...</span>
+                    </button>
+                    <button
+                      onClick={async () => {
+                        setMenuFeedId(null);
+                        if (confirm(`Delete feed "${feed.title}" and all its articles?`)) {
+                          await deleteFeed(feed.id);
+                        }
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-red-500/20 text-left text-red-400 hover:text-red-300"
+                    >
+                      <Trash2 size={13} />
+                      <span>Delete Feed...</span>
+                    </button>
+                  </div>
                 )}
               </div>
             ))}

@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
-import { Check, RefreshCw, MoreVertical, Sparkles, Moon, Eye, EyeOff, FolderKanban, CheckCircle2, CheckCheck, FolderInput, ArrowUpDown } from 'lucide-react';
+import { Check, RefreshCw, MoreVertical, Sparkles, Moon, Eye, EyeOff, FolderKanban, CheckCircle2, CheckCheck, FolderInput, ArrowUpDown, Pencil, Trash2 } from 'lucide-react';
 import { isToday, isYesterday, format } from 'date-fns';
 import { useAppStore } from '../stores/appStore';
 import { ArticleCard } from './ArticleCard';
@@ -30,6 +30,10 @@ export function ArticleList() {
     folders,
     stats,
     setSelectFolderModalOpen,
+    updateFolder,
+    deleteFolder,
+    updateFeedTitle,
+    deleteFeed,
     toggleSidebar,
     refreshFeed,
     refreshAllFeeds,
@@ -89,12 +93,13 @@ export function ArticleList() {
   if (filterView === 'starred') title = 'Read Later';
   if (filterView === 'for-you') title = 'For You';
   const selectedFeed = selectedFeedId ? feeds.find(f => f.id === selectedFeedId) : null;
+  const selectedFolder = selectedFolderId ? folders.find(f => f.id === selectedFolderId) : null;
   const feedFolder = selectedFeed?.folder_id ? folders.find(fol => fol.id === selectedFeed.folder_id) : null;
   if (selectedFeed) {
     title = selectedFeed.title || 'Feed';
   }
-  if (selectedFolderId) {
-    title = folders.find(f => f.id === selectedFolderId)?.name || 'Folder';
+  if (selectedFolder) {
+    title = selectedFolder.name || 'Folder';
   }
   const currentBoard = selectedBoardId ? boards.find(b => b.id === selectedBoardId) : null;
   if (currentBoard) {
@@ -395,25 +400,86 @@ export function ArticleList() {
                       {showRead ? "ON" : "OFF"}
                     </span>
                   </button>
-                  {selectedFeedId && (
-                    <button
-                      onClick={() => refreshFeed(selectedFeedId)}
-                      className="w-full text-left px-3 py-2 hover:bg-gray-800 text-gray-300"
-                    >
-                      Refresh this feed
-                    </button>
-                  )}
                   {selectedFeed && (
-                    <button
-                      onClick={() => {
-                        setMenuOpen(false);
-                        setSelectFolderModalOpen(true, selectedFeed);
-                      }}
-                      className="w-full text-left px-3 py-2 hover:bg-gray-800 text-gray-300 flex items-center gap-2"
-                    >
-                      <FolderInput size={13} className="text-gray-400" />
-                      <span>Change Folder / Grouping...</span>
-                    </button>
+                    <>
+                      <div className="h-px bg-gray-800 my-1" />
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          refreshFeed(selectedFeed.id);
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-gray-800 text-gray-300 flex items-center gap-2"
+                      >
+                        <RefreshCw size={13} className="text-gray-400" />
+                        <span>Refresh this feed</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          setSelectFolderModalOpen(true, selectedFeed);
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-gray-800 text-gray-300 flex items-center gap-2"
+                      >
+                        <FolderInput size={13} className="text-gray-400" />
+                        <span>Change Category...</span>
+                      </button>
+                      <button
+                        onClick={async () => {
+                          setMenuOpen(false);
+                          const newTitle = prompt('Enter new feed title:', selectedFeed.title);
+                          if (newTitle && newTitle.trim() && newTitle.trim() !== selectedFeed.title) {
+                            await updateFeedTitle(selectedFeed.id, newTitle.trim());
+                          }
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-gray-800 text-gray-300 flex items-center gap-2"
+                      >
+                        <Pencil size={13} className="text-gray-400" />
+                        <span>Rename Feed...</span>
+                      </button>
+                      <button
+                        onClick={async () => {
+                          setMenuOpen(false);
+                          if (confirm(`Delete feed "${selectedFeed.title}" and all its articles?`)) {
+                            await deleteFeed(selectedFeed.id);
+                          }
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-red-500/20 text-red-400 hover:text-red-300 flex items-center gap-2"
+                      >
+                        <Trash2 size={13} className="text-red-400" />
+                        <span>Delete Feed...</span>
+                      </button>
+                    </>
+                  )}
+
+                  {selectedFolder && (
+                    <>
+                      <div className="h-px bg-gray-800 my-1" />
+                      <button
+                        onClick={async () => {
+                          setMenuOpen(false);
+                          const newName = prompt('Enter new category name:', selectedFolder.name);
+                          if (newName && newName.trim() && newName.trim() !== selectedFolder.name) {
+                            await updateFolder(selectedFolder.id, newName.trim());
+                          }
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-gray-800 text-gray-300 flex items-center gap-2"
+                      >
+                        <Pencil size={13} className="text-gray-400" />
+                        <span>Rename Category...</span>
+                      </button>
+                      <button
+                        onClick={async () => {
+                          setMenuOpen(false);
+                          if (confirm(`Delete category "${selectedFolder.name}"? Feeds inside will be moved to Uncategorized.`)) {
+                            await deleteFolder(selectedFolder.id);
+                          }
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-red-500/20 text-red-400 hover:text-red-300 flex items-center gap-2"
+                      >
+                        <Trash2 size={13} className="text-red-400" />
+                        <span>Delete Category...</span>
+                      </button>
+                    </>
                   )}
                 </div>
               )}
