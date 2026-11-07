@@ -178,7 +178,11 @@ export function useKeyboard() {
           } else if (boardSwitcherModalOpen) {
             setBoardSwitcherModalOpen(false);
           } else if (selectedArticle) {
-            selectArticle(null);
+            if (typeof window !== 'undefined' && window.history.state?.feedaModal === 'article') {
+              window.history.back();
+            } else {
+              selectArticle(null);
+            }
           }
           break;
       }

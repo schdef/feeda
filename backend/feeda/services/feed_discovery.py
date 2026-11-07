@@ -101,18 +101,129 @@ CURATED_FALLBACK_FEEDS: List[Dict[str, Any]] = [
 ]
 
 
+GENERIC_DOMAINS = {
+    "feedburner.com", "rss.feedspot.com", "cloud.feedly.com",
+    "wordpress.com", "blogspot.com", "substack.com", "medium.com",
+    "github.com", "youtube.com"
+}
+
+
 def clean_feed_id(feed_id: Optional[str]) -> str:
-    """Strips leading 'feed/' from feedly feedId."""
+    """Strips leading 'feed/' or 'feed:' from feedly feedId."""
     if not feed_id:
         return ""
-    return re.sub(r"^feed/", "", feed_id.strip())
+    return re.sub(r"^feed[:/]+", "", feed_id.strip())
 
 
 def normalize_feed_url(url: Optional[str]) -> str:
-    """Normalizes feed url for comparison."""
+    """
+    Robust normalization for feed URLs:
+    - Lowercase
+    - Strip whitespace
+    - Strip leading 'feed/' or 'feed:' prefix
+    - Strip 'http://' or 'https://'
+    - Strip optional leading 'www.'
+    - Strip query parameters ('?') and fragments ('#')
+    - Strip trailing slashes
+    """
     if not url:
         return ""
-    return url.strip().rstrip("/")
+    u = url.strip().lower()
+    u = re.sub(r"^feed[:/]+", "", u)
+    u = re.sub(r"^https?://", "", u)
+    u = re.sub(r"^www\.", "", u)
+    u = u.split("?")[0].split("#")[0]
+    return u.rstrip("/")
+
+
+def extract_domain(url: Optional[str]) -> str:
+    if not url:
+        return ""
+    u = url.strip().lower()
+    u = re.sub(r"^feed[:/]+", "", u)
+    if "://" not in u:
+        u = "http://" + u
+    try:
+        dom = urlparse(u).netloc.lower()
+        if dom.startswith("www."):
+            dom = dom[4:]
+        return dom
+    except Exception:
+        return ""
+
+
+def normalize_title(title: Optional[str]) -> str:
+    if not title:
+        return ""
+    t = title.strip().lower()
+    t = re.sub(r"\s*[-–—|]\s*(all posts|rss|feed|frontpage|aktuell|schlagzeilen|news).*$", "", t)
+    return re.sub(r"[^a-z0-9]", "", t)
+
+
+def is_subscribed_feed(
+    feed_url: Optional[str],
+    site_url: Optional[str],
+    title: Optional[str],
+    subscribed_urls: set,
+    subscribed_domains: set,
+    subscribed_titles: set
+) -> bool:
+    """Checks if a candidate feed matches any user subscription via URL, domain, or title."""
+    if feed_url:
+        norm_u = normalize_feed_url(feed_url)
+        if norm_u and norm_u in subscribed_urls:
+            return True
+        dom_u = extract_domain(feed_url)
+        if dom_u and dom_u not in GENERIC_DOMAINS and dom_u in subscribed_domains:
+            return True
+
+    if site_url:
+        norm_su = normalize_feed_url(site_url)
+        if norm_su and norm_su in subscribed_urls:
+            return True
+        dom_s = extract_domain(site_url)
+        if dom_s and dom_s not in GENERIC_DOMAINS and dom_s in subscribed_domains:
+            return True
+
+    if title:
+        norm_t = normalize_title(title)
+        if len(norm_t) >= 4 and norm_t in subscribed_titles:
+            return True
+
+    return False
+
+
+async def get_user_subscription_sets() -> tuple[set, set, set]:
+    """Fetches user subscriptions and builds sets of normalized URLs, domains, and titles."""
+    user_rows = await db.fetch_all("SELECT url, site_url, title FROM feeds")
+    subscribed_urls = set()
+    subscribed_domains = set()
+    subscribed_titles = set()
+
+    for r in user_rows:
+        u = r.get("url")
+        if u:
+            norm_u = normalize_feed_url(u)
+            if norm_u:
+                subscribed_urls.add(norm_u)
+            dom_u = extract_domain(u)
+            if dom_u and dom_u not in GENERIC_DOMAINS:
+                subscribed_domains.add(dom_u)
+        su = r.get("site_url")
+        if su:
+            norm_su = normalize_feed_url(su)
+            if norm_su:
+                subscribed_urls.add(norm_su)
+            dom_s = extract_domain(su)
+            if dom_s and dom_s not in GENERIC_DOMAINS:
+                subscribed_domains.add(dom_s)
+        t = r.get("title")
+        if t:
+            norm_t = normalize_title(t)
+            if len(norm_t) >= 4:
+                subscribed_titles.add(norm_t)
+
+    return subscribed_urls, subscribed_domains, subscribed_titles
 
 
 def parse_feedly_item(item: Dict[str, Any]) -> Dict[str, Any]:
@@ -178,8 +289,7 @@ async def search_feeds(query: str, count: int = 20) -> List[Dict[str, Any]]:
     q = query.strip()
 
     # Get user's current subscriptions for is_subscribed checking
-    subscribed_rows = await db.fetch_all("SELECT url FROM feeds")
-    subscribed_urls = {normalize_feed_url(r["url"]) for r in subscribed_rows if r.get("url")}
+    subscribed_urls, subscribed_domains, subscribed_titles = await get_user_subscription_sets()
 
     # Try Feedly
     results = []
@@ -227,7 +337,10 @@ async def search_feeds(query: str, count: int = 20) -> List[Dict[str, Any]]:
             ):
                 seen_urls.add(norm)
                 item = dict(c)
-                item["is_subscribed"] = norm in subscribed_urls
+                item["is_subscribed"] = is_subscribed_feed(
+                    item.get("url"), item.get("site_url"), item.get("title"),
+                    subscribed_urls, subscribed_domains, subscribed_titles
+                )
                 results.append(item)
 
         # If still empty, return top curated feeds as a discovery fallback
@@ -235,12 +348,18 @@ async def search_feeds(query: str, count: int = 20) -> List[Dict[str, Any]]:
             for c in CURATED_FALLBACK_FEEDS[:count]:
                 norm = normalize_feed_url(c["url"])
                 item = dict(c)
-                item["is_subscribed"] = norm in subscribed_urls
+                item["is_subscribed"] = is_subscribed_feed(
+                    item.get("url"), item.get("site_url"), item.get("title"),
+                    subscribed_urls, subscribed_domains, subscribed_titles
+                )
                 results.append(item)
 
     # Mark is_subscribed
     for item in results:
-        item["is_subscribed"] = normalize_feed_url(item.get("url")) in subscribed_urls
+        item["is_subscribed"] = is_subscribed_feed(
+            item.get("url"), item.get("site_url"), item.get("title"),
+            subscribed_urls, subscribed_domains, subscribed_titles
+        )
 
     return results[:count]
 
@@ -300,8 +419,7 @@ async def get_feed_suggestions(refresh: Optional[int] = 0) -> Dict[str, Any]:
         sampled_terms = rng.sample(defaults, k=min(len(defaults), k))
 
     # User's current subscriptions
-    user_rows = await db.fetch_all("SELECT url FROM feeds")
-    user_subscribed_urls = {normalize_feed_url(r["url"]) for r in user_rows if r.get("url")}
+    subscribed_urls, subscribed_domains, subscribed_titles = await get_user_subscription_sets()
 
     # Query external feeds for each sampled term concurrently
     search_tasks = [search_feedly(term, count=8) for term in sampled_terms]
@@ -310,15 +428,26 @@ async def get_feed_suggestions(refresh: Optional[int] = 0) -> Dict[str, Any]:
     reason = f"Based on your interest in: {', '.join(sampled_terms)}"
     suggestions = []
     seen_urls = set()
+    seen_titles = set()
 
     for term_res in search_results_list:
         if isinstance(term_res, Exception) or not term_res:
             continue
         for feed in term_res:
             norm = normalize_feed_url(feed.get("url"))
-            if not norm or norm in user_subscribed_urls or norm in seen_urls:
+            norm_t = normalize_title(feed.get("title"))
+            if not norm or norm in seen_urls:
+                continue
+            if norm_t and len(norm_t) >= 4 and norm_t in seen_titles:
+                continue
+            if is_subscribed_feed(
+                feed.get("url"), feed.get("site_url"), feed.get("title"),
+                subscribed_urls, subscribed_domains, subscribed_titles
+            ):
                 continue
             seen_urls.add(norm)
+            if norm_t and len(norm_t) >= 4:
+                seen_titles.add(norm_t)
             feed_dict = dict(feed)
             feed_dict["reason"] = reason
             feed_dict["is_subscribed"] = False
@@ -328,14 +457,25 @@ async def get_feed_suggestions(refresh: Optional[int] = 0) -> Dict[str, Any]:
     if len(suggestions) < 3:
         for c in CURATED_FALLBACK_FEEDS:
             norm = normalize_feed_url(c["url"])
-            if norm not in user_subscribed_urls and norm not in seen_urls:
-                seen_urls.add(norm)
-                item = dict(c)
-                item["reason"] = reason
-                item["is_subscribed"] = False
-                suggestions.append(item)
-                if len(suggestions) >= 10:
-                    break
+            norm_t = normalize_title(c.get("title"))
+            if not norm or norm in seen_urls:
+                continue
+            if norm_t and len(norm_t) >= 4 and norm_t in seen_titles:
+                continue
+            if is_subscribed_feed(
+                c.get("url"), c.get("site_url"), c.get("title"),
+                subscribed_urls, subscribed_domains, subscribed_titles
+            ):
+                continue
+            seen_urls.add(norm)
+            if norm_t and len(norm_t) >= 4:
+                seen_titles.add(norm_t)
+            item = dict(c)
+            item["reason"] = reason
+            item["is_subscribed"] = False
+            suggestions.append(item)
+            if len(suggestions) >= 10:
+                break
 
     return {
         "suggestions": suggestions[:20],

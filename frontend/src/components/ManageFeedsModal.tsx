@@ -43,8 +43,6 @@ export function ManageFeedsModal() {
   const [isBusy, setIsBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  if (!manageFeedsModalOpen) return null;
-
   const handleClose = () => {
     setManageFeedsModalOpen(false);
     setSearchQuery('');
@@ -209,17 +207,19 @@ export function ManageFeedsModal() {
   const totalFeedsCount = feeds.length;
   const totalFoldersCount = folders.length;
 
+  if (!manageFeedsModalOpen) return null;
+
   return (
     <div 
-      className="fixed inset-0 bg-black/75 backdrop-blur-xs z-50 flex items-center justify-center p-2 sm:p-4"
+      className="fixed inset-0 bg-black/75 backdrop-blur-xs z-[70] flex items-center justify-center p-0 md:p-4"
       onClick={handleClose}
     >
       <div 
-        className="bg-gray-900 border border-gray-800 w-full max-w-3xl max-h-[90vh] rounded-2xl flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        className="fixed inset-0 h-[100dvh] w-full rounded-none flex flex-col min-h-0 bg-gray-950 md:static md:h-auto md:max-h-[90vh] md:max-w-3xl md:rounded-2xl md:bg-gray-900 md:border md:border-gray-800 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 bg-gray-900/90">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 bg-gray-900/90 shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
               <SlidersHorizontal size={18} />
@@ -242,7 +242,7 @@ export function ManageFeedsModal() {
         </div>
 
         {/* Toolbar: Search and Create Category */}
-        <div className="px-5 py-3 border-b border-gray-800 bg-gray-950/50 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+        <div className="px-5 py-3 border-b border-gray-800 bg-gray-950/50 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 shrink-0">
           {/* Search bar */}
           <div className="relative flex-1">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -309,7 +309,7 @@ export function ManageFeedsModal() {
 
         {/* Error banner */}
         {actionError && (
-          <div className="px-5 py-2 bg-red-950/40 border-b border-red-900/50 text-red-400 text-xs flex items-center justify-between">
+          <div className="px-5 py-2 bg-red-950/40 border-b border-red-900/50 text-red-400 text-xs flex items-center justify-between shrink-0">
             <span>{actionError}</span>
             <button onClick={() => setActionError(null)} className="text-red-400 hover:text-red-300">
               <X size={14} />
@@ -318,7 +318,7 @@ export function ManageFeedsModal() {
         )}
 
         {/* Content list */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5 space-y-4">
           {filteredFoldersWithFeeds.length === 0 && uncategorizedFeeds.length === 0 && (
             <div className="text-center py-12 text-gray-500">
               {query ? (
@@ -716,7 +716,7 @@ export function ManageFeedsModal() {
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-gray-800 bg-gray-900/90 flex items-center justify-between">
+        <div className="px-5 py-3 border-t border-gray-800 bg-gray-900/90 flex items-center justify-between shrink-0">
           <span className="text-xs text-gray-500">
             Changes to categories and feeds are saved immediately.
           </span>

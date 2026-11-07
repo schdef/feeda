@@ -9,7 +9,18 @@ router = APIRouter(prefix="/api/folders", tags=["folders"])
 async def list_folders():
     rows = await db.fetch_all("""
         SELECT f.*, COUNT(fd.id) as feed_count,
-               (SELECT COUNT(*) FROM articles a JOIN feeds fd ON a.feed_id = fd.id WHERE fd.folder_id = f.id AND a.is_read = 0) as unread_count
+               (SELECT COUNT(*) FROM articles a 
+                JOIN feeds fd ON a.feed_id = fd.id 
+                WHERE fd.folder_id = f.id AND a.is_read = 0
+                  AND (a.cluster_id IS NULL OR a.id = (
+                      SELECT a2.id FROM articles a2 
+                      JOIN feeds fd2 ON a2.feed_id = fd2.id 
+                      WHERE a2.cluster_id = a.cluster_id 
+                        AND fd2.folder_id = f.id 
+                        AND a2.is_read = 0 
+                      ORDER BY datetime(COALESCE(a2.published_at, a2.fetched_at)) ASC, a2.id ASC 
+                      LIMIT 1
+                  ))) as unread_count
         FROM folders f 
         LEFT JOIN feeds fd ON f.id = fd.folder_id 
         GROUP BY f.id ORDER BY f.position
@@ -27,7 +38,16 @@ async def create_folder(folder: FolderCreate):
                 FROM articles a 
                 JOIN feeds fd ON a.feed_id = fd.id 
                 WHERE fd.folder_id = ? AND a.is_read = 0
-            """, (existing["id"],))
+                  AND (a.cluster_id IS NULL OR a.id = (
+                      SELECT a2.id FROM articles a2 
+                      JOIN feeds fd2 ON a2.feed_id = fd2.id 
+                      WHERE a2.cluster_id = a.cluster_id 
+                        AND fd2.folder_id = ? 
+                        AND a2.is_read = 0 
+                      ORDER BY datetime(COALESCE(a2.published_at, a2.fetched_at)) ASC, a2.id ASC 
+                      LIMIT 1
+                  ))
+            """, (existing["id"], existing["id"]))
             feed_count = await db.fetch_one("SELECT COUNT(*) as cnt FROM feeds WHERE folder_id = ?", (existing["id"],))
             return {
                 "id": existing["id"],
@@ -70,7 +90,18 @@ async def update_folder(folder_id: int, folder: FolderUpdate):
         
     row = await db.fetch_one("""
         SELECT f.*, COUNT(fd.id) as feed_count,
-               (SELECT COUNT(*) FROM articles a JOIN feeds fd ON a.feed_id = fd.id WHERE fd.folder_id = f.id AND a.is_read = 0) as unread_count
+               (SELECT COUNT(*) FROM articles a 
+                JOIN feeds fd ON a.feed_id = fd.id 
+                WHERE fd.folder_id = f.id AND a.is_read = 0
+                  AND (a.cluster_id IS NULL OR a.id = (
+                      SELECT a2.id FROM articles a2 
+                      JOIN feeds fd2 ON a2.feed_id = fd2.id 
+                      WHERE a2.cluster_id = a.cluster_id 
+                        AND fd2.folder_id = f.id 
+                        AND a2.is_read = 0 
+                      ORDER BY datetime(COALESCE(a2.published_at, a2.fetched_at)) ASC, a2.id ASC 
+                      LIMIT 1
+                  ))) as unread_count
         FROM folders f 
         LEFT JOIN feeds fd ON f.id = fd.folder_id 
         WHERE f.id = ? 

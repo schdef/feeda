@@ -149,6 +149,34 @@ def is_duplicate_article(a1: dict, a2: dict) -> bool:
             if (inter / min_len >= 0.75) and inter >= 5:
                 return True
 
+    # Multi-factor AI story signature and summary deduplication
+    try:
+        from .ai_summary import (
+            are_signatures_duplicate,
+            are_ai_summaries_duplicate,
+            generate_story_signature,
+            generate_local_summary
+        )
+
+        sig1 = a1.get('story_signature')
+        sig2 = a2.get('story_signature')
+        if not sig1 and (a1.get('title') or a1.get('summary')):
+            sig1 = generate_story_signature(a1.get('title') or '', a1.get('content') or a1.get('summary') or '')
+            a1['story_signature'] = sig1
+        if not sig2 and (a2.get('title') or a2.get('summary')):
+            sig2 = generate_story_signature(a2.get('title') or '', a2.get('content') or a2.get('summary') or '')
+            a2['story_signature'] = sig2
+
+        if sig1 and sig2 and are_signatures_duplicate(sig1, sig2):
+            return True
+
+        sum1 = a1.get('ai_summary') or a1.get('summary')
+        sum2 = a2.get('ai_summary') or a2.get('summary')
+        if sum1 and sum2 and are_ai_summaries_duplicate(sum1, sum2, a1.get('title') or '', a2.get('title') or ''):
+            return True
+    except Exception:
+        pass
+
     return False
 
 def title_shingles(title: str, n: int = 3) -> set:
@@ -231,19 +259,33 @@ async def find_duplicate(article: dict, db) -> int:
             return row['cluster_id']
         return await create_cluster(db, row['id'])
 
-    # 2. Title similarity against recent articles
-    recent = await db.fetch_all("SELECT id, cluster_id, title FROM articles ORDER BY id DESC LIMIT 500")
-    for r in recent:
-        if is_duplicate_title(article['title'], r['title']):
-            return r['cluster_id'] or await create_cluster(db, r['id'])
+    # 2. Candidate story matching across 7-day rolling window or recent 1500 articles (AC4)
+    from .ai_summary import generate_story_signature, generate_local_summary
+    if not article.get('story_signature') and (article.get('title') or article.get('summary')):
+        article['story_signature'] = generate_story_signature(
+            article.get('title') or '',
+            article.get('content') or article.get('summary') or ''
+        )
+    if not article.get('ai_summary') and (article.get('title') or article.get('summary')):
+        article['ai_summary'] = generate_local_summary(
+            article.get('title') or '',
+            content=article.get('content') or '',
+            summary=article.get('summary') or ''
+        )
 
-    # 3. Simhash similarity
-    simhash_val = compute_simhash(article.get('content') or article.get('summary') or '')
-    if simhash_val:
-        recent_hashes = await db.fetch_all("SELECT id, cluster_id, content_simhash FROM articles WHERE content_simhash IS NOT NULL AND content_simhash != 0 ORDER BY id DESC LIMIT 500")
-        for r in recent_hashes:
-            if hamming_distance(simhash_val, r['content_simhash']) <= 3:
-                return r['cluster_id'] or await create_cluster(db, r['id'])
+    candidates = await db.fetch_all("""
+        SELECT id, feed_id, cluster_id, title, summary, content, ai_summary, story_signature, 
+               published_at, fetched_at, url, url_hash, guid, content_simhash
+        FROM articles 
+        WHERE (
+            datetime(COALESCE(published_at, fetched_at)) >= datetime('now', '-7 days')
+            OR id IN (SELECT id FROM articles ORDER BY id DESC LIMIT 1500)
+        )
+        ORDER BY id DESC
+    """)
+    for r in candidates:
+        if is_duplicate_article(article, r):
+            return r['cluster_id'] or await create_cluster(db, r['id'])
 
     return None
     

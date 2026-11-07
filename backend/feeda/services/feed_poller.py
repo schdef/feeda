@@ -9,6 +9,7 @@ from email.utils import formatdate
 from ..database import db
 from .feed_parser import parse_entries, decode_html_text
 from .dedup import find_duplicate, url_hash, title_shingles, compute_simhash, update_cluster_primary
+from .ai_summary import analyze_article
 from .ranker import score_article, apply_decay, rescore_articles
 from .plugin_manager import hook_manager
 from .llm_dedup import cluster_unclustered_articles_background
@@ -239,6 +240,10 @@ async def poll_single_feed(feed_id: int):
             
             await hook_manager.run('process_article', entry)
             
+            ai_data = await analyze_article(entry['title'], entry.get('content') or "", entry.get('summary') or "")
+            entry['ai_summary'] = ai_data.get('ai_summary')
+            entry['story_signature'] = ai_data.get('story_signature')
+
             shingles = ",".join(title_shingles(entry['title']))
             simhash_val = compute_simhash(entry['content'] or entry['summary'] or "")
             
@@ -252,9 +257,9 @@ async def poll_single_feed(feed_id: int):
             score = await score_article(entry, db)
 
             await db.execute("""
-                INSERT INTO articles (feed_id, cluster_id, guid, url, url_hash, title, author, summary, content, image_url, published_at, title_shingles, content_simhash, interest_score)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (feed_id, cluster_id, entry['guid'], entry['url'], uhash, entry['title'], entry['author'], entry['summary'], entry['content'], image_url, entry['published_at'], shingles, simhash_val, score))
+                INSERT INTO articles (feed_id, cluster_id, guid, url, url_hash, title, author, summary, content, image_url, published_at, title_shingles, content_simhash, interest_score, ai_summary, story_signature)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (feed_id, cluster_id, entry['guid'], entry['url'], uhash, entry['title'], entry['author'], entry['summary'], entry['content'], image_url, entry['published_at'], shingles, simhash_val, score, entry['ai_summary'], entry['story_signature']))
 
             if cluster_id:
                 await update_cluster_primary(db, cluster_id)

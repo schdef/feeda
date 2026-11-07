@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ArrowLeft, X, Plus, Rss, Sparkles, RefreshCw, Check, Search, Loader2 } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import { api } from '../api/client';
@@ -155,13 +155,74 @@ export function DiscoverView() {
     fetchSuggestions(nextCount);
   };
 
-  const isSubscribed = (url?: string) => {
-    if (!url) return false;
-    const cleanUrl = url.trim().toLowerCase().replace(/\/$/, '');
-    return feeds.some(
-      f => (f.url || '').trim().toLowerCase().replace(/\/$/, '') === cleanUrl
-    );
+  const normalizeFeedUrl = (u?: string | null) => {
+    if (!u) return '';
+    return u
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, '')
+      .replace(/^www\./, '')
+      .replace(/\/+$/, '');
   };
+
+  const getHostname = (u?: string | null) => {
+    if (!u) return '';
+    try {
+      const parsed = new URL(u.startsWith('http') ? u : `https://${u}`);
+      return parsed.hostname.toLowerCase().replace(/^www\./, '');
+    } catch {
+      return '';
+    }
+  };
+
+  const isSubscribed = (url?: string | null, title?: string | null, siteUrl?: string | null) => {
+    if (!url && !title && !siteUrl) return false;
+    const normUrl = normalizeFeedUrl(url);
+    const hostUrl = getHostname(url);
+    const normTitle = (title || '').trim().toLowerCase();
+    const normSite = normalizeFeedUrl(siteUrl);
+    const hostSite = getHostname(siteUrl);
+
+    return feeds.some(f => {
+      const fUrl = normalizeFeedUrl(f.url);
+      const fHostUrl = getHostname(f.url);
+      const fSite = normalizeFeedUrl(f.site_url);
+      const fHostSite = getHostname(f.site_url);
+      const fTitle = (f.title || '').trim().toLowerCase();
+
+      // Exact or normalized URL match
+      if (normUrl && fUrl && (normUrl === fUrl || normUrl.startsWith(fUrl) || fUrl.startsWith(normUrl))) {
+        return true;
+      }
+
+      // Hostname match on same domain
+      if (hostUrl && fHostUrl && hostUrl === fHostUrl) {
+        if (normUrl === fUrl) return true;
+        const pathA = normUrl.split('/').slice(1).join('/');
+        const pathB = fUrl.split('/').slice(1).join('/');
+        if (pathA && pathB && (pathA === pathB || pathA.startsWith(pathB) || pathB.startsWith(pathA))) {
+          return true;
+        }
+      }
+
+      // Site URL match
+      if (normSite && fSite && normSite === fSite) return true;
+      if (hostSite && fHostSite && hostSite === fHostSite) return true;
+
+      // Title match
+      if (normTitle && fTitle && normTitle.length > 2 && normTitle === fTitle) {
+        return true;
+      }
+
+      return false;
+    });
+  };
+
+  const visibleSuggestions = useMemo<any[]>(() => {
+    return suggestions.filter(
+      feed => !isSubscribed(feed.url || feed.feed_url, feed.title, feed.site || feed.site_url) && !feed.is_subscribed
+    );
+  }, [suggestions, feeds]);
 
   const handleAddFeed = async (feedItem: any) => {
     const feedUrl = feedItem.url || feedItem.feed_url;
@@ -396,7 +457,7 @@ export function DiscoverView() {
 
             {/* Suggestions list */}
             <div className="flex flex-col divide-y divide-gray-900/60">
-              {suggestions.map((feed, idx) => {
+              {visibleSuggestions.map((feed, idx) => {
                 const feedUrl = feed.url || feed.feed_url || '';
                 const site = feed.site || feed.site_url || feed.website || '';
                 const icon = feed.favicon_url || feed.icon_url || feed.image_url;
@@ -475,7 +536,7 @@ export function DiscoverView() {
                 );
               })}
 
-              {!isLoadingSuggestions && suggestions.length === 0 && (
+              {!isLoadingSuggestions && visibleSuggestions.length === 0 && (
                 <div className="px-4 py-12 text-center text-gray-500 text-sm">
                   No suggestions available right now.
                 </div>

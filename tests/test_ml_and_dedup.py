@@ -161,6 +161,191 @@ async def test_dedup_functions():
     assert "The Verge" in deduped[0]["cluster_sources"]
     print("Deduplication PASSED!")
 
+async def test_ai_summary_and_story_signature_dedup():
+    print("\n--- 2.1 Testing AI Summary & Story Signature Deduplication ---")
+    from feeda.services.ai_summary import (
+        extract_entities,
+        extract_actions,
+        generate_story_signature,
+        generate_local_summary,
+        are_signatures_duplicate,
+        are_ai_summaries_duplicate,
+        analyze_article_content
+    )
+    from feeda.services.dedup import is_duplicate_article
+    from feeda.services.llm_dedup import deduplicate_articles_sync
+
+    # Entity extraction check
+    ents = extract_entities("Is Tesla winding down Cybertruck production in Austin?")
+    assert "tesla" in ents
+    assert "cybertruck" in ents
+
+    # Action predicate check
+    acts = extract_actions("Tesla is winding down Cybertruck assembly lines")
+    assert acts["primary_cluster"] == "production_halt_reduce"
+    assert "wind_down" in acts["actions"]
+
+    # The 3 Tesla Cybertruck articles from the user report
+    art1 = {
+        "id": 101,
+        "title": "Tesla winding down Cybertruck production",
+        "summary": "Tesla is slowing down its Cybertruck assembly lines amid shifting EV demand.",
+        "published_at": "2026-11-04T10:00:00Z",
+        "feed_title": "Electrek",
+        "url": "https://electrek.co/tesla-cybertruck-wind-down"
+    }
+    art2 = {
+        "id": 102,
+        "title": "Is Tesla winding down Cybertruck? Leaked memo suggests pause",
+        "summary": "An internal company memo suggests Tesla may be pausing Cybertruck manufacturing at Giga Texas.",
+        "published_at": "2026-11-05T14:30:00Z",
+        "feed_title": "The Verge",
+        "url": "https://theverge.com/tesla-cybertruck-pause"
+    }
+    art3 = {
+        "id": 103,
+        "title": "Cybertruck production cuts at Tesla",
+        "summary": "Workers report Cybertruck production cuts at the Austin factory as inventory builds.",
+        "published_at": "2026-11-06T09:15:00Z",
+        "feed_title": "Reuters",
+        "url": "https://reuters.com/business/tesla-cybertruck-cuts"
+    }
+
+    # Verify is_duplicate_article identifies them pairwise as duplicates
+    assert is_duplicate_article(art1, art2) is True, "Expected art1 and art2 to match as duplicates"
+    assert is_duplicate_article(art1, art3) is True, "Expected art1 and art3 to match as duplicates"
+    assert is_duplicate_article(art2, art3) is True, "Expected art2 and art3 to match as duplicates"
+
+    # Unrelated article should NOT match
+    art_unrelated = {
+        "id": 104,
+        "title": "Apple announces new MacBook Pro with M4 chip",
+        "summary": "Apple today unveiled the updated MacBook Pro featuring the next-generation M4 processor.",
+        "published_at": "2026-11-06T10:00:00Z",
+        "feed_title": "9to5Mac",
+        "url": "https://9to5mac.com/apple-macbook-pro-m4"
+    }
+    assert is_duplicate_article(art1, art_unrelated) is False
+    assert is_duplicate_article(art3, art_unrelated) is False
+
+    # Test deduplicate_articles_sync with all 3 Cybertruck articles + 1 unrelated article
+    # Passed in reverse chronological order (newest first, Nov 06 -> Nov 05 -> Nov 04)
+    incoming = [dict(art3), dict(art2), dict(art1), dict(art_unrelated)]
+    deduped = deduplicate_articles_sync(incoming)
+
+    assert len(deduped) == 2, f"Expected 2 unique stories, got {len(deduped)}"
+    # Earliest appearance retention (AC3): primary article MUST be art1 (published Nov 04)
+    cybertruck_story = deduped[0]
+    assert cybertruck_story["id"] == 101, f"Expected earliest article id=101 to be primary, got {cybertruck_story['id']}"
+    assert cybertruck_story["cluster_count"] == 3
+    assert "Electrek" in cybertruck_story["cluster_sources"]
+    assert "The Verge" in cybertruck_story["cluster_sources"]
+    assert "Reuters" in cybertruck_story["cluster_sources"]
+    print("AI Summary & Story Signature Deduplication tests PASSED!")
+
+async def test_cross_day_story_memory_and_earliest_retention():
+    print("\n--- 2.2 Testing Cross-Day Story Memory & Database Clustering ---")
+    from feeda.services.dedup import find_duplicate, update_cluster_primary, url_hash, title_shingles, compute_simhash
+    from feeda.services.ai_summary import analyze_article_content
+
+    db.db_path = DB_PATH
+    await db.connect()
+
+    feed_row = await db.fetch_one("SELECT id FROM feeds LIMIT 1")
+    feed_id = feed_row["id"] if feed_row else 1
+
+    # Clean any leftover test articles
+    await db.execute("DELETE FROM articles WHERE guid LIKE 'guid-day%'")
+
+    # 1. Insert initial story on Day 1 (2026-11-04)
+    day1_article = {
+        "feed_id": feed_id,
+        "url": "https://example.com/day1-tesla-cybertruck",
+        "guid": "guid-day1-tesla-cybertruck",
+        "title": "Tesla winding down Cybertruck production",
+        "summary": "Tesla is slowing down its Cybertruck assembly lines amid shifting EV demand.",
+        "content": "Tesla is slowing down its Cybertruck assembly lines amid shifting EV demand.",
+        "published_at": "2026-11-04T10:00:00Z"
+    }
+    
+    cluster_d1 = await find_duplicate(day1_article, db)
+    d1_ai = analyze_article_content(day1_article["title"], day1_article["summary"])
+    
+    d1_id = await db.execute("""
+        INSERT INTO articles (feed_id, cluster_id, guid, url, url_hash, title, summary, content, published_at, title_shingles, content_simhash, ai_summary, story_signature)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        feed_id, cluster_d1, day1_article["guid"], day1_article["url"],
+        url_hash(day1_article["url"]), day1_article["title"], day1_article["summary"],
+        day1_article["content"], day1_article["published_at"],
+        ",".join(title_shingles(day1_article["title"])),
+        compute_simhash(day1_article["content"]),
+        d1_ai["ai_summary"], d1_ai["story_signature"]
+    ))
+    
+    # 2. Day 2 (published 24+ hours later): "Is Tesla winding down Cybertruck? Leaked memo suggests pause"
+    day2_article = {
+        "feed_id": feed_id,
+        "url": "https://other.com/day2-tesla-cybertruck",
+        "guid": "guid-day2-tesla-cybertruck",
+        "title": "Is Tesla winding down Cybertruck? Leaked memo suggests pause",
+        "summary": "An internal company memo suggests Tesla may be pausing Cybertruck manufacturing.",
+        "content": "An internal company memo suggests Tesla may be pausing Cybertruck manufacturing.",
+        "published_at": "2026-11-05T14:30:00Z"
+    }
+    cluster_d2 = await find_duplicate(day2_article, db)
+    assert cluster_d2 is not None, "Cross-day story memory failed to match Day 2 article to Day 1 story!"
+
+    d2_ai = analyze_article_content(day2_article["title"], day2_article["summary"])
+    d2_id = await db.execute("""
+        INSERT INTO articles (feed_id, cluster_id, guid, url, url_hash, title, summary, content, published_at, title_shingles, content_simhash, ai_summary, story_signature)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        feed_id, cluster_d2, day2_article["guid"], day2_article["url"],
+        url_hash(day2_article["url"]), day2_article["title"], day2_article["summary"],
+        day2_article["content"], day2_article["published_at"],
+        ",".join(title_shingles(day2_article["title"])),
+        compute_simhash(day2_article["content"]),
+        d2_ai["ai_summary"], d2_ai["story_signature"]
+    ))
+    await update_cluster_primary(db, cluster_d2)
+
+    # 3. Day 3 (published 48 hours later): "Cybertruck production cuts at Tesla"
+    day3_article = {
+        "feed_id": feed_id,
+        "url": "https://reuters-ex.com/day3-tesla-cybertruck",
+        "guid": "guid-day3-tesla-cybertruck",
+        "title": "Cybertruck production cuts at Tesla",
+        "summary": "Workers report Cybertruck production cuts at the Austin factory.",
+        "content": "Workers report Cybertruck production cuts at the Austin factory.",
+        "published_at": "2026-11-06T09:00:00Z"
+    }
+    cluster_d3 = await find_duplicate(day3_article, db)
+    assert cluster_d3 == cluster_d2, f"Day 3 article should match existing cluster {cluster_d2}, got {cluster_d3}"
+
+    d3_ai = analyze_article_content(day3_article["title"], day3_article["summary"])
+    d3_id = await db.execute("""
+        INSERT INTO articles (feed_id, cluster_id, guid, url, url_hash, title, summary, content, published_at, title_shingles, content_simhash, ai_summary, story_signature)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        feed_id, cluster_d3, day3_article["guid"], day3_article["url"],
+        url_hash(day3_article["url"]), day3_article["title"], day3_article["summary"],
+        day3_article["content"], day3_article["published_at"],
+        ",".join(title_shingles(day3_article["title"])),
+        compute_simhash(day3_article["content"]),
+        d3_ai["ai_summary"], d3_ai["story_signature"]
+    ))
+    await update_cluster_primary(db, cluster_d3)
+
+    # 4. Verify cluster primary is the earliest article (d1_id)
+    c_row = await db.fetch_one("SELECT primary_article_id FROM clusters WHERE id = ?", (cluster_d3,))
+    assert c_row["primary_article_id"] == d1_id, f"Expected earliest article {d1_id} as primary, got {c_row['primary_article_id']}"
+
+    # Cleanup test articles
+    await db.execute("DELETE FROM articles WHERE guid LIKE 'guid-day%'")
+    await db.execute("DELETE FROM clusters WHERE id = ?", (cluster_d3,))
+    print("Cross-Day Story Memory & Database Clustering tests PASSED!")
+
 async def test_likelihood_monotonicity():
     print("\n--- 2.5 Testing Likelihood Monotonicity Invariants ---")
     db.db_path = DB_PATH
@@ -850,6 +1035,8 @@ async def main():
     await test_decode_html_text()
     await test_term_extraction()
     await test_dedup_functions()
+    await test_ai_summary_and_story_signature_dedup()
+    await test_cross_day_story_memory_and_earliest_retention()
     await test_likelihood_monotonicity()
     await test_backend_api()
     await test_opml_import_export()

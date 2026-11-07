@@ -38,6 +38,14 @@ export function ArticleReader() {
 
   useDwellTime(selectedArticle?.id);
 
+  const handleClose = () => {
+    if (typeof window !== 'undefined' && window.history.state?.feedaModal === 'article') {
+      window.history.back();
+    } else {
+      selectArticle(null);
+    }
+  };
+
   // Scroll to top and fetch article boards when article changes
   useEffect(() => {
     if (contentRef.current) {
@@ -89,7 +97,7 @@ export function ArticleReader() {
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-800/80 bg-gray-950/90 backdrop-blur-md shrink-0">
         {/* Mobile Back Button */}
         <button 
-          onClick={() => selectArticle(null)}
+          onClick={handleClose}
           className="md:hidden p-1.5 -ml-1 text-gray-400 hover:text-gray-100 hover:bg-gray-800 rounded-md transition-colors"
           title="Back to articles"
         >
@@ -152,7 +160,7 @@ export function ArticleReader() {
         </button>
 
         <button 
-          onClick={() => selectArticle(null)}
+          onClick={handleClose}
           className="p-2 text-gray-400 hover:text-gray-200 hover:bg-gray-800 rounded-md transition-colors ml-1"
           title="Close article (Esc)"
         >

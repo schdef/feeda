@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
-import { Check, RefreshCw, MoreVertical, Sparkles, Moon, Eye, EyeOff, FolderKanban, CheckCircle2, CheckCheck, FolderInput, ArrowUpDown, Pencil, Trash2 } from 'lucide-react';
+import { Check, RefreshCw, MoreVertical, Sparkles, Moon, Eye, EyeOff, FolderKanban, CheckCircle2, CheckCheck, FolderInput, ArrowUpDown, Pencil, Trash2, LayoutGrid, List } from 'lucide-react';
 import { isToday, isYesterday, format } from 'date-fns';
 import { useAppStore } from '../stores/appStore';
 import { ArticleCard } from './ArticleCard';
@@ -16,6 +16,7 @@ export function ArticleList() {
     hasMore, 
     loadMoreArticles,
     viewMode,
+    setViewMode,
     sortMode,
     setSortMode,
     markAllAsRead,
@@ -80,7 +81,11 @@ export function ArticleList() {
 
       const diff = Math.abs(currentScrollTop - lastScrollTopRef.current);
       if (diff > 80) {
-        selectArticle(null);
+        if (typeof window !== 'undefined' && window.history.state?.feedaModal === 'article') {
+          window.history.back();
+        } else {
+          selectArticle(null);
+        }
       }
     } else {
       lastScrollTopRef.current = currentScrollTop;
@@ -106,12 +111,24 @@ export function ArticleList() {
     title = currentBoard.name;
   }
 
-  // Calculate unread badge count
-  let currentUnread = stats?.unread_count;
-  if (filterView === 'today') {
-    currentUnread = (stats?.today_unread_count && stats.today_unread_count > 0) ? stats.today_unread_count : articles.filter(a => !a.is_read).length;
+  // Calculate unread badge count accurately based on active view
+  let currentUnread: number | undefined;
+  if (selectedFolderId) {
+    currentUnread = folders.find(f => f.id === selectedFolderId)?.unread_count;
+  } else if (selectedFeedId) {
+    currentUnread = feeds.find(f => f.id === selectedFeedId)?.unread_count;
+  } else if (filterView === 'today') {
+    currentUnread = stats?.today_unread_count;
   } else if (filterView === 'for-you') {
-    currentUnread = (stats?.for_you_unread_count && stats.for_you_unread_count > 0) ? stats.for_you_unread_count : articles.filter(a => !a.is_read).length;
+    currentUnread = stats?.for_you_unread_count;
+  } else if (filterView === 'all') {
+    currentUnread = stats?.unread_count;
+  } else if (filterView === 'unread') {
+    currentUnread = stats?.unread_count;
+  } else if (filterView === 'starred') {
+    currentUnread = stats?.starred_count;
+  } else {
+    currentUnread = stats?.unread_count;
   }
   const unreadCount = currentUnread ?? articles.filter(a => !a.is_read).length;
   const badgeText = selectedBoardId ? `${articles.length}` : formatUnreadCount(unreadCount);
@@ -318,6 +335,21 @@ export function ArticleList() {
               <span className="hidden sm:inline text-[11px] font-medium capitalize">{sortMode}</span>
             </button>
 
+            <button
+              onClick={() => setViewMode(viewMode === 'magazine' ? 'compact' : 'magazine')}
+              className="p-1.5 rounded-md transition-colors flex items-center gap-1 text-xs text-gray-400 hover:text-gray-100 hover:bg-gray-800/60"
+              title={viewMode === 'magazine' ? "Switch to List view" : "Switch to Magazine view"}
+            >
+              {viewMode === 'magazine' ? (
+                <LayoutGrid size={17} className="text-blue-400" />
+              ) : (
+                <List size={17} className="text-blue-400" />
+              )}
+              <span className="hidden sm:inline text-[11px] font-medium capitalize">
+                {viewMode === 'magazine' ? 'Magazine' : 'List'}
+              </span>
+            </button>
+
             <button 
               onClick={() => refreshAllFeeds()}
               disabled={isRefreshing}
@@ -382,14 +414,20 @@ export function ArticleList() {
               {/* Dropdown menu */}
               {menuOpen && (
                 <div 
-                  className="absolute right-0 mt-1 w-52 bg-gray-900 border border-gray-800 rounded-lg shadow-xl py-1 z-30 text-xs"
+                  className="absolute right-0 mt-1 w-64 bg-gray-900 border border-gray-800 rounded-lg shadow-xl py-1 z-30 text-xs"
                   onClick={() => setMenuOpen(false)}
                 >
                   <button
-                    onClick={() => setSortMode(sortMode === 'date' ? 'score' : 'date')}
-                    className="w-full text-left px-3 py-2 hover:bg-gray-800 text-gray-300"
+                    onClick={() => setViewMode(viewMode === 'magazine' ? 'compact' : 'magazine')}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-800 text-gray-300 flex items-center justify-between"
                   >
-                    Sort by: <span className="font-semibold text-blue-400 capitalize">{sortMode}</span>
+                    <span>View layout: <span className="font-semibold text-blue-400">{viewMode === 'magazine' ? 'Magazine (Images)' : 'List (Compact)'}</span></span>
+                  </button>
+                  <button
+                    onClick={() => setSortMode(sortMode === 'date' ? 'score' : 'date')}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-800 text-gray-300 flex items-center justify-between"
+                  >
+                    <span>Sort by: <span className="font-semibold text-blue-400 capitalize">{sortMode}</span></span>
                   </button>
                   <button
                     onClick={toggleShowRead}

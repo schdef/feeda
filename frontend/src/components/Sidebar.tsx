@@ -100,7 +100,10 @@ export function Sidebar() {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setManageFeedsModalOpen(true)}
+            onClick={() => {
+              setSidebarOpen(false);
+              setManageFeedsModalOpen(true);
+            }}
             className="text-xs font-semibold text-gray-400 hover:text-gray-200 transition-colors"
           >
             Manage Feeds
@@ -254,7 +257,10 @@ export function Sidebar() {
             <h2 className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Feeds</h2>
             <div className="flex items-center gap-0.5">
               <button 
-                onClick={() => setManageFeedsModalOpen(true)}
+                onClick={() => {
+                  setSidebarOpen(false);
+                  setManageFeedsModalOpen(true);
+                }}
                 className="p-1 text-gray-500 hover:text-gray-300 rounded transition-colors" 
                 title="Manage Feeds & Categories"
               >

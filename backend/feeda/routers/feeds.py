@@ -19,14 +19,34 @@ router = APIRouter(prefix="/api/feeds", tags=["feeds"])
 async def list_feeds():
     feeds = await db.fetch_all("""
         SELECT f.*, 
-               (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id AND a.is_read = 0) as unread_count
+               (SELECT COUNT(*) FROM articles a 
+                WHERE a.feed_id = f.id AND a.is_read = 0
+                  AND (a.cluster_id IS NULL OR a.id = (
+                      SELECT a2.id FROM articles a2 
+                      WHERE a2.cluster_id = a.cluster_id 
+                        AND a2.feed_id = f.id 
+                        AND a2.is_read = 0 
+                      ORDER BY datetime(COALESCE(a2.published_at, a2.fetched_at)) ASC, a2.id ASC 
+                      LIMIT 1
+                  ))) as unread_count
         FROM feeds f
         ORDER BY f.title
     """)
     folders = await db.fetch_all("""
         SELECT f.id, f.name, f.position,
                (SELECT COUNT(*) FROM feeds fd WHERE fd.folder_id = f.id) as feed_count,
-               (SELECT COUNT(*) FROM articles a JOIN feeds fd ON a.feed_id = fd.id WHERE fd.folder_id = f.id AND a.is_read = 0) as unread_count
+               (SELECT COUNT(*) FROM articles a 
+                JOIN feeds fd ON a.feed_id = fd.id 
+                WHERE fd.folder_id = f.id AND a.is_read = 0
+                  AND (a.cluster_id IS NULL OR a.id = (
+                      SELECT a2.id FROM articles a2 
+                      JOIN feeds fd2 ON a2.feed_id = fd2.id 
+                      WHERE a2.cluster_id = a.cluster_id 
+                        AND fd2.folder_id = f.id 
+                        AND a2.is_read = 0 
+                      ORDER BY datetime(COALESCE(a2.published_at, a2.fetched_at)) ASC, a2.id ASC 
+                      LIMIT 1
+                  ))) as unread_count
         FROM folders f
         ORDER BY f.position
     """)
@@ -84,7 +104,18 @@ async def update_feed(feed_id: int, feed: FeedUpdate):
     row = await db.fetch_one("SELECT * FROM feeds WHERE id = ?", (feed_id,))
     if not row:
         raise HTTPException(status_code=404, detail="Feed not found")
-    unread = await db.fetch_one("SELECT COUNT(*) as count FROM articles WHERE feed_id = ? AND is_read = 0", (feed_id,))
+    unread = await db.fetch_one("""
+        SELECT COUNT(*) as count FROM articles a 
+        WHERE a.feed_id = ? AND a.is_read = 0
+          AND (a.cluster_id IS NULL OR a.id = (
+              SELECT a2.id FROM articles a2 
+              WHERE a2.cluster_id = a.cluster_id 
+                AND a2.feed_id = ? 
+                AND a2.is_read = 0 
+              ORDER BY datetime(COALESCE(a2.published_at, a2.fetched_at)) ASC, a2.id ASC 
+              LIMIT 1
+          ))
+    """, (feed_id, feed_id))
     row['unread_count'] = unread['count'] if unread else 0
     return row
 

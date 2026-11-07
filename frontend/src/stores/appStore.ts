@@ -152,7 +152,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedArticle: null,
   stats: null,
   
-  viewMode: 'magazine',
+  viewMode: (typeof localStorage !== 'undefined' && (localStorage.getItem('feeda_view_mode') as ViewMode)) || 'magazine',
   sortMode: 'date',
   filterView: 'for-you',
   likelihoodFilter: 'likely',
@@ -311,6 +311,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   selectArticle: (article) => {
+    if (article && typeof window !== 'undefined') {
+      if (window.history.state?.feedaModal !== 'article') {
+        window.history.pushState({ feedaModal: 'article' }, '');
+      }
+    }
     set({ selectedArticle: article });
     if (article) {
       if (!article.is_read) {
@@ -379,7 +384,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     get().fetchArticles(true);
   },
 
-  setViewMode: (mode) => set({ viewMode: mode }),
+  setViewMode: (mode) => {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem('feeda_view_mode', mode);
+      } catch (e) {
+        console.warn('Failed to save feeda_view_mode to localStorage', e);
+      }
+    }
+    set({ viewMode: mode });
+  },
   setSortMode: (mode) => {
     set({ sortMode: mode });
     get().fetchArticles(true);

@@ -98,6 +98,18 @@ async def cluster_unclustered_articles_background(db):
     except Exception as e:
         logger.error(f"Error in background clustering: {e}")
 
+def is_earlier_article(art1: Dict, art2: Dict) -> bool:
+    """Returns True if art1 was published (or fetched) earlier than art2."""
+    ts1 = str(art1.get("published_at") or art1.get("fetched_at") or "")
+    ts2 = str(art2.get("published_at") or art2.get("fetched_at") or "")
+    if ts1 and ts2:
+        return ts1 < ts2
+    if ts1 and not ts2:
+        return True
+    if not ts1 and ts2:
+        return False
+    return (art1.get("id") or 0) < (art2.get("id") or 0)
+
 def _merge_duplicate(primary: Dict, duplicate: Dict):
     feed_title = duplicate.get("feed_title") or "Unknown"
     sources = primary.get("cluster_sources")
@@ -172,10 +184,37 @@ def deduplicate_articles_sync(articles: List[Dict]) -> List[Dict]:
                     break
 
         if duplicate_primary is not None:
-            _merge_duplicate(duplicate_primary, a)
-            if cid is not None and duplicate_primary.get("cluster_id") is None:
-                duplicate_primary["cluster_id"] = cid
-                grouped_by_cid[cid] = duplicate_primary
+            # AC3: Retain the earliest published article as the primary article!
+            if is_earlier_article(a, duplicate_primary):
+                # 'a' is earlier than the previously accepted duplicate_primary.
+                # Swap so 'a' becomes the primary article in deduplicated_list.
+                if "cluster_sources" not in a or a["cluster_sources"] is None:
+                    a["cluster_sources"] = []
+                feed_title = a.get("feed_title") or "Unknown"
+                if feed_title not in a["cluster_sources"]:
+                    a["cluster_sources"].append(feed_title)
+                _merge_duplicate(a, duplicate_primary)
+
+                # Replace duplicate_primary with 'a'
+                idx = deduplicated_list.index(duplicate_primary)
+                deduplicated_list[idx] = a
+
+                # Update index structures
+                if cid is not None:
+                    grouped_by_cid[cid] = a
+                elif duplicate_primary.get("cluster_id") is not None:
+                    a["cluster_id"] = duplicate_primary["cluster_id"]
+                    grouped_by_cid[a["cluster_id"]] = a
+
+                if aid is not None:
+                    seen_ids.add(aid)
+                if norm_t and len(norm_t) > 10:
+                    seen_titles[norm_t] = a
+            else:
+                _merge_duplicate(duplicate_primary, a)
+                if cid is not None and duplicate_primary.get("cluster_id") is None:
+                    duplicate_primary["cluster_id"] = cid
+                    grouped_by_cid[cid] = duplicate_primary
             continue
 
         # Unique article! Add to accepted

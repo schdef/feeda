@@ -22,6 +22,22 @@ class Database:
         await self._conn.execute("PRAGMA foreign_keys = ON;")
         await self._conn.commit()
 
+        # Schema compatibility check for ai_summary and story_signature
+        try:
+            async with self._conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='articles'") as cur:
+                table_exists = await cur.fetchone()
+            if table_exists:
+                async with self._conn.execute("PRAGMA table_info(articles)") as cur:
+                    rows = await cur.fetchall()
+                    existing_cols = {r[1] for r in rows}
+                if "ai_summary" not in existing_cols:
+                    await self._conn.execute("ALTER TABLE articles ADD COLUMN ai_summary TEXT;")
+                if "story_signature" not in existing_cols:
+                    await self._conn.execute("ALTER TABLE articles ADD COLUMN story_signature TEXT;")
+                await self._conn.commit()
+        except Exception as e:
+            logger.warning(f"Notice during schema column check: {e}")
+
     async def close(self):
         if self._conn:
             await self._conn.close()
@@ -53,12 +69,26 @@ class Database:
             logger.warning(f"Migrations directory {migrations_dir} not found.")
             return
 
+        await self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS _migrations (
+                filename TEXT PRIMARY KEY,
+                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        await self._conn.commit()
+
+        async with self._conn.execute("SELECT filename FROM _migrations") as cur:
+            applied = {r[0] for r in await cur.fetchall()}
+
         for filename in sorted(os.listdir(migrations_dir)):
             if filename.endswith(".sql"):
+                if filename in applied:
+                    continue
                 filepath = os.path.join(migrations_dir, filename)
                 with open(filepath, "r") as f:
                     script = f.read()
                 await self._conn.executescript(script)
+                await self._conn.execute("INSERT OR IGNORE INTO _migrations (filename) VALUES (?)", (filename,))
                 await self._conn.commit()
                 logger.info(f"Ran migration: {filename}")
 

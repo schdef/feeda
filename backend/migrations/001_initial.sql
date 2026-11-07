@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS articles (
     user_vote INTEGER DEFAULT 0,
     read_at TIMESTAMP,
     interest_score REAL DEFAULT 0,
+    ai_summary TEXT,
+    story_signature TEXT,
     UNIQUE(feed_id, url_hash)
 );
 

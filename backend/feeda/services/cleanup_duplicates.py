@@ -17,6 +17,17 @@ def cleanup_database_sync(db_path: str):
     removed_count = 0
     clustered_count = 0
 
+    # 0. Ensure schema compatibility for ai_summary and story_signature
+    col_rows = cursor.execute("PRAGMA table_info(articles)").fetchall()
+    existing_cols = {r['name'] for r in col_rows}
+    if "ai_summary" not in existing_cols:
+        cursor.execute("ALTER TABLE articles ADD COLUMN ai_summary TEXT;")
+    if "story_signature" not in existing_cols:
+        cursor.execute("ALTER TABLE articles ADD COLUMN story_signature TEXT;")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_cluster_id ON articles(cluster_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_story_sig ON articles(story_signature);")
+    conn.commit()
+
     # 1. Clean exact duplicates in the SAME FEED by (feed_id, guid)
     logger.info("Scanning for duplicates by (feed_id, guid)...")
     dup_guids = cursor.execute("""
@@ -105,33 +116,65 @@ def cleanup_database_sync(db_path: str):
                 cursor.execute("UPDATE articles SET cluster_id = ? WHERE id = ?", (cid, m['id']))
                 clustered_count += 1
 
-    # 4. Check for title duplicates among unclustered or recent articles
-    logger.info("Scanning for duplicate titles...")
-    from feeda.services.dedup import is_duplicate_title, clean_title
+    # 4. Check for multi-factor duplicates among recent articles (last 7 days or 1500 articles)
+    logger.info("Scanning for story duplicates with AI summary and story signatures...")
+    from feeda.services.dedup import is_duplicate_title, clean_title, is_duplicate_article
+    from feeda.services.ai_summary import generate_story_signature, generate_local_summary
 
-    recent = cursor.execute("""
-        SELECT id, feed_id, cluster_id, title 
+    recent_rows = cursor.execute("""
+        SELECT id, feed_id, cluster_id, title, summary, content, ai_summary, story_signature,
+               published_at, fetched_at, url, url_hash, guid, content_simhash
         FROM articles 
-        ORDER BY id DESC 
-        LIMIT 1000
+        WHERE (
+            datetime(COALESCE(published_at, fetched_at)) >= datetime('now', '-7 days')
+            OR id IN (SELECT id FROM articles ORDER BY id DESC LIMIT 1500)
+        )
+        ORDER BY id DESC
     """).fetchall()
 
-    # Compare pairwise for title duplicates
+    recent = [dict(r) for r in recent_rows]
+
+    # Pre-populate missing story_signatures and ai_summaries in batch
+    updates = []
+    for a in recent:
+        need_update = False
+        if not a.get('story_signature') and (a.get('title') or a.get('summary')):
+            a['story_signature'] = generate_story_signature(a.get('title') or '', a.get('content') or a.get('summary') or '')
+            need_update = True
+        if not a.get('ai_summary') and (a.get('title') or a.get('summary')):
+            a['ai_summary'] = generate_local_summary(a.get('title') or '', content=a.get('content') or '', summary=a.get('summary') or '')
+            need_update = True
+        if need_update:
+            updates.append((a.get('story_signature'), a.get('ai_summary'), a['id']))
+
+    if updates:
+        cursor.executemany("UPDATE articles SET story_signature = ?, ai_summary = ? WHERE id = ?", updates)
+        conn.commit()
+
+    # Compare pairwise for duplicates using is_duplicate_article
+    deleted_ids = set()
     for i in range(len(recent)):
         a1 = recent[i]
-        for j in range(i + 1, min(i + 50, len(recent))):
+        if a1['id'] in deleted_ids:
+            continue
+        for j in range(i + 1, min(i + 60, len(recent))):
             a2 = recent[j]
-            if is_duplicate_title(a1['title'], a2['title']):
+            if a2['id'] in deleted_ids:
+                continue
+            if is_duplicate_article(a1, a2):
                 if a1['feed_id'] == a2['feed_id']:
                     # Same feed: remove duplicate if identical title
                     if clean_title(a1['title']).lower() == clean_title(a2['title']).lower():
                         target_id = max(a1['id'], a2['id'])
                         keep_id = min(a1['id'], a2['id'])
+                        deleted_ids.add(target_id)
                         cursor.execute("UPDATE OR IGNORE board_articles SET article_id = ? WHERE article_id = ?", (keep_id, target_id))
                         cursor.execute("DELETE FROM board_articles WHERE article_id = ?", (target_id,))
                         cursor.execute("DELETE FROM articles WHERE id = ?", (target_id,))
                         removed_count += 1
                         logger.info(f"Removed duplicate title in same feed {a1['feed_id']}: removed id={target_id}, kept id={keep_id}")
+                        if a1['id'] == target_id:
+                            break
                 else:
                     # Different feed: cluster them together!
                     cid = a1['cluster_id'] or a2['cluster_id']
@@ -140,9 +183,11 @@ def cleanup_database_sync(db_path: str):
                         cid = cursor.lastrowid
                     if a1['cluster_id'] != cid:
                         cursor.execute("UPDATE articles SET cluster_id = ? WHERE id = ?", (cid, a1['id']))
+                        a1['cluster_id'] = cid
                         clustered_count += 1
                     if a2['cluster_id'] != cid:
                         cursor.execute("UPDATE articles SET cluster_id = ? WHERE id = ?", (cid, a2['id']))
+                        a2['cluster_id'] = cid
                         clustered_count += 1
 
     # 5. Synchronize cluster primaries to the chronologically earliest article

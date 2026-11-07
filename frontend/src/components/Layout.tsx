@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useAppStore } from '../stores/appStore';
 import { AddFeedModal } from './AddFeedModal';
 import { SelectFolderModal } from './SelectFolderModal';
@@ -17,6 +17,24 @@ interface LayoutProps {
 
 export function Layout({ sidebar, articleList, articleReader }: LayoutProps) {
   const { selectedArticle, addFeedModalOpen, selectFolderModalOpen, sidebarOpen, setSidebarOpen } = useAppStore();
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const state = useAppStore.getState();
+      if (state.selectedArticle) {
+        state.selectArticle(null);
+      } else if (state.manageFeedsModalOpen) {
+        state.setManageFeedsModalOpen(false);
+      } else if (state.discoverViewOpen) {
+        state.setDiscoverViewOpen(false);
+      } else if (state.sidebarOpen) {
+        state.setSidebarOpen(false);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-950 text-gray-200">

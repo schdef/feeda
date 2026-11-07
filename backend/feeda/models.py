@@ -68,6 +68,8 @@ class ArticleResponse(BaseModel):
     cluster_sources: List[str] = []
     board_note: Optional[str] = None
     board_added_at: Optional[Any] = None
+    ai_summary: Optional[str] = None
+    story_signature: Optional[str] = None
 
 class ArticleListResponse(BaseModel):
     articles: List[ArticleResponse]

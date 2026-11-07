@@ -118,14 +118,28 @@ async def list_articles(
         where.append("(a.published_at IS NULL OR datetime(a.published_at) >= datetime('now', '-6 months'))")
 
     if sort == "date":
-        order_clause = "ORDER BY a.published_at DESC"
+        order_clause = "ORDER BY a.published_at DESC, a.id DESC"
     else:
-        order_clause = "ORDER BY a.interest_score ASC, a.published_at DESC" if effective_likelihood == "not_likely" else "ORDER BY a.interest_score DESC, a.published_at DESC"
+        order_clause = "ORDER BY a.interest_score ASC, a.published_at DESC, a.id DESC" if effective_likelihood == "not_likely" else "ORDER BY a.interest_score DESC, a.published_at DESC, a.id DESC"
 
     if dedup:
-        where.append("""(a.cluster_id IS NULL OR a.id = (
+        subquery_where = ["a2.cluster_id = a.cluster_id"]
+        subquery_joins = ""
+
+        if feed_id:
+            subquery_where.append("a2.feed_id = a.feed_id")
+        elif folder_id:
+            subquery_joins = "JOIN feeds f2 ON a2.feed_id = f2.id"
+            subquery_where.append("f2.folder_id = f.folder_id")
+
+        if is_read is not None:
+            subquery_where.append(f"a2.is_read = {1 if is_read else 0}")
+
+        subquery_where_str = " AND ".join(subquery_where)
+        where.append(f"""(a.cluster_id IS NULL OR a.id = (
             SELECT a2.id FROM articles a2 
-            WHERE a2.cluster_id = a.cluster_id 
+            {subquery_joins}
+            WHERE {subquery_where_str}
             ORDER BY datetime(COALESCE(a2.published_at, a2.fetched_at)) ASC, a2.id ASC 
             LIMIT 1
         ))""")
@@ -151,8 +165,12 @@ async def list_articles(
     
     count_query = f"SELECT COUNT(*) as total FROM articles a LEFT JOIN feeds f ON a.feed_id = f.id {where_clause}"
     
-    fetch_limit = min(limit * 2, 200) if dedup else limit
-    items = await db.fetch_all(query, tuple(params + [fetch_limit, offset]))
+    if dedup:
+        fetch_limit = max(page * limit * 3, page * limit + 100)
+        items = await db.fetch_all(query, tuple(params + [fetch_limit, 0]))
+    else:
+        items = await db.fetch_all(query, tuple(params + [limit, offset]))
+
     for item in items:
         item['is_read'] = bool(item['is_read'])
         item['is_starred'] = bool(item['is_starred'])
@@ -173,7 +191,7 @@ async def list_articles(
         if not feed_id and not folder_id:
             if any(not a.get("cluster_id") for a in items):
                 asyncio.create_task(cluster_unclustered_articles_background(db))
-        items = items[:limit]
+        items = items[offset : offset + limit]
     
     total_row = await db.fetch_one(count_query, tuple(params))
     
@@ -227,15 +245,20 @@ async def for_you(
         params.append(1 if actual_is_read else 0)
 
     if dedup:
-        where.append("""(a.cluster_id IS NULL OR a.id = (
+        subquery_where = ["a2.cluster_id = a.cluster_id"]
+        if actual_is_read is not None:
+            subquery_where.append(f"a2.is_read = {1 if actual_is_read else 0}")
+
+        subquery_where_str = " AND ".join(subquery_where)
+        where.append(f"""(a.cluster_id IS NULL OR a.id = (
             SELECT a2.id FROM articles a2 
-            WHERE a2.cluster_id = a.cluster_id 
+            WHERE {subquery_where_str}
             ORDER BY datetime(COALESCE(a2.published_at, a2.fetched_at)) ASC, a2.id ASC 
             LIMIT 1
         ))""")
 
     where_clause = f"WHERE {' AND '.join(where)}"
-    order_clause = "ORDER BY a.published_at DESC" if sort == "date" else "ORDER BY a.interest_score DESC, a.published_at DESC"
+    order_clause = "ORDER BY a.published_at DESC, a.id DESC" if sort == "date" else "ORDER BY a.interest_score DESC, a.published_at DESC, a.id DESC"
 
     query = f"""
         SELECT a.*, 
@@ -252,7 +275,12 @@ async def for_you(
         {order_clause}
         LIMIT ? OFFSET ?
     """
-    items = await db.fetch_all(query, tuple(params + [limit, offset]))
+    if dedup:
+        fetch_limit = max(page * limit * 3, page * limit + 100)
+        items = await db.fetch_all(query, tuple(params + [fetch_limit, 0]))
+    else:
+        items = await db.fetch_all(query, tuple(params + [limit, offset]))
+
     for item in items:
         item['is_read'] = bool(item['is_read'])
         item['is_starred'] = bool(item['is_starred'])
@@ -268,10 +296,12 @@ async def for_you(
         item['interest_score'] = float(item.get('interest_score') or 0.0)
         item['likelihood_tier'] = 'high'
 
-    items = deduplicate_articles_sync(items)
+    if dedup:
+        items = deduplicate_articles_sync(items)
+        items = items[offset : offset + limit]
 
     count_row = await db.fetch_one(
-        f"SELECT COUNT(*) as total FROM articles a {where_clause}",
+        f"SELECT COUNT(*) as total FROM articles a LEFT JOIN feeds f ON a.feed_id = f.id {where_clause}",
         tuple(params)
     )
     total = count_row['total'] if count_row else 0
