@@ -4,11 +4,12 @@ import { Sidebar } from './components/Sidebar';
 import { ArticleList } from './components/ArticleList';
 import { ArticleReader } from './components/ArticleReader';
 import { DiscoverView } from './components/DiscoverView';
+import { InterestBoardView } from './components/InterestBoardView';
 import { useAppStore } from './stores/appStore';
 import { useKeyboard } from './hooks/useKeyboard';
 
 function App() {
-  const { fetchFeeds, fetchArticles, setOffline, syncOfflineActions, discoverViewOpen } = useAppStore();
+  const { fetchFeeds, fetchArticles, setOffline, syncOfflineActions, discoverViewOpen, filterView } = useAppStore();
   
   useKeyboard();
 
@@ -39,7 +40,7 @@ function App() {
   return (
     <Layout
       sidebar={<Sidebar />}
-      articleList={discoverViewOpen ? <DiscoverView /> : <ArticleList />}
+      articleList={discoverViewOpen ? <DiscoverView /> : (filterView === 'interests' ? <InterestBoardView /> : <ArticleList />)}
       articleReader={<ArticleReader />}
     />
   );

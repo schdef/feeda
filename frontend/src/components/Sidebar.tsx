@@ -4,6 +4,7 @@ import {
   Bookmark, 
   Sparkles, 
   Flame, 
+  LayoutDashboard,
   Plus, 
   ChevronRight, 
   ChevronDown, 
@@ -150,6 +151,22 @@ export function Sidebar() {
           {stats?.for_you_unread_count ? (
             <span className="text-xs text-gray-500 font-medium">{formatUnreadCount(stats.for_you_unread_count)}</span>
           ) : null}
+        </div>
+
+        <div 
+          className={topItemClass(filterView === 'interests')} 
+          onClick={() => setFilterView('interests')}
+        >
+          <LayoutDashboard size={19} className="text-gray-400" />
+          <span className="flex-1">Interests</span>
+        </div>
+
+        <div 
+          className={topItemClass(filterView === 'interests')} 
+          onClick={() => setFilterView('interests')}
+        >
+          <LayoutDashboard size={19} className="text-gray-400" />
+          <span className="flex-1">Interests</span>
         </div>
       </div>
 

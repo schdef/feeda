@@ -1,4 +1,4 @@
-import { AlignLeft, Bookmark, LayoutGrid, Rss, Search, Sparkles } from 'lucide-react';
+import { AlignLeft, Bookmark, LayoutDashboard, LayoutGrid, Rss, Search, Sparkles } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import clsx from 'clsx';
 
@@ -31,6 +31,7 @@ export function BottomNav() {
   };
 
   const isForYouActive = filterView === 'for-you' && !discoverViewOpen && !selectedFeedId && !selectedFolderId && !selectedBoardId;
+  const isInterestsActive = filterView === 'interests' && !discoverViewOpen && !selectedFeedId && !selectedFolderId && !selectedBoardId;
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-30 md:hidden bg-gray-950/95 backdrop-blur-md border-t border-gray-800/80 px-4 py-2 flex items-center justify-around h-14">
@@ -59,6 +60,21 @@ export function BottomNav() {
         {Boolean(stats?.for_you_unread_count && stats.for_you_unread_count > 0) && (
           <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-gray-950" />
         )}
+      </button>
+
+      {/* 3. Interests */}
+      <button
+        onClick={() => {
+          setDiscoverViewOpen(false);
+          setFilterView('interests');
+        }}
+        className={clsx(
+          "p-2 relative active:scale-95 transition-all flex items-center justify-center",
+          isInterestsActive ? "text-indigo-400" : "text-gray-400 hover:text-gray-100"
+        )}
+        title="Interests"
+      >
+        <LayoutDashboard size={22} className={isInterestsActive ? "fill-indigo-400/20" : ""} />
       </button>
 
       {/* 3. Read Later (Bookmark) */}
