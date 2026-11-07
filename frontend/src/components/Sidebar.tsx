@@ -160,14 +160,6 @@ export function Sidebar() {
           <LayoutDashboard size={19} className="text-gray-400" />
           <span className="flex-1">Interests</span>
         </div>
-
-        <div 
-          className={topItemClass(filterView === 'interests')} 
-          onClick={() => setFilterView('interests')}
-        >
-          <LayoutDashboard size={19} className="text-gray-400" />
-          <span className="flex-1">Interests</span>
-        </div>
       </div>
 
       <div className="h-px bg-gray-800/50 mx-4 my-2" />
