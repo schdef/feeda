@@ -582,7 +582,16 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   markArticleUnread: async (id) => {
     const state = get();
-    const article = state.articles.find(a => a.id === id);
+    let article = state.articles.find(a => a.id === id);
+    if (!article && state.interestGroups.length > 0) {
+      for (const group of state.interestGroups) {
+        const found = group.articles.find(a => a.id === id);
+        if (found) {
+          article = found;
+          break;
+        }
+      }
+    }
     if (article && !article.is_read) {
       return;
     }
@@ -598,9 +607,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       const feed = feedId ? s.feeds.find(f => f.id === feedId) : null;
       const folderId = feed?.folder_id;
 
+      const updatedInterestGroups = s.interestGroups.length > 0 ? s.interestGroups.map(group => {
+        const containsArticle = group.articles.some(a => a.id === id);
+        if (!containsArticle) return group;
+        return {
+          ...group,
+          article_count: group.article_count + 1,
+          articles: group.articles.map(a => a.id === id ? { ...a, is_read: false } : a)
+        };
+      }) : s.interestGroups;
+
       return {
         articles: s.articles.map(a => a.id === id ? { ...a, is_read: false } : a),
         selectedArticle: s.selectedArticle?.id === id ? { ...s.selectedArticle, is_read: false } : s.selectedArticle,
+        interestGroups: updatedInterestGroups,
         stats: wasRead && s.stats ? {
           ...s.stats,
           unread_count: s.stats.unread_count + 1,
@@ -657,6 +677,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           ? s.articles.filter(a => a.id !== id) 
           : s.articles.map(a => a.id === id ? { ...a, is_starred: nextStarred } : a),
         selectedArticle: s.selectedArticle?.id === id ? { ...s.selectedArticle, is_starred: nextStarred } : s.selectedArticle,
+        interestGroups: s.interestGroups.length > 0 ? s.interestGroups.map(group => ({
+          ...group,
+          articles: group.articles.map(a => a.id === id ? { ...a, is_starred: nextStarred } : a)
+        })) : s.interestGroups,
         stats: s.stats ? {
           ...s.stats,
           starred_count: nextStarred 
@@ -680,7 +704,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   voteArticle: async (id, direction) => {
     set((s) => ({
       articles: s.articles.map(a => a.id === id ? { ...a, user_vote: direction } : a),
-      selectedArticle: s.selectedArticle?.id === id ? { ...s.selectedArticle, user_vote: direction } : s.selectedArticle
+      selectedArticle: s.selectedArticle?.id === id ? { ...s.selectedArticle, user_vote: direction } : s.selectedArticle,
+      interestGroups: s.interestGroups.length > 0 ? s.interestGroups.map(group => ({
+        ...group,
+        articles: group.articles.map(a => a.id === id ? { ...a, user_vote: direction } : a)
+      })) : s.interestGroups
     }));
 
     updateArticleOffline(id, { user_vote: direction });
@@ -712,6 +740,22 @@ export const useAppStore = create<AppState>((set, get) => ({
           if (!olderThan || olderThan === 'all') return { ...a, is_read: true };
           return a;
         }),
+        interestGroups: s.interestGroups.length > 0 ? s.interestGroups.map(group => {
+          const updatedArticles = group.articles.map(a => {
+            if (!a.published_at) return { ...a, is_read: true };
+            const pubTime = new Date(a.published_at).getTime();
+            if (olderThan === '1d' && pubTime < oneDayAgo) return { ...a, is_read: true };
+            if (olderThan === '1w' && pubTime < oneWeekAgo) return { ...a, is_read: true };
+            if (!olderThan || olderThan === 'all') return { ...a, is_read: true };
+            return a;
+          });
+          const unreadCount = updatedArticles.filter(a => !a.is_read).length;
+          return {
+            ...group,
+            article_count: unreadCount,
+            articles: updatedArticles
+          };
+        }) : s.interestGroups,
         selectedArticle: s.selectedArticle ? {
           ...s.selectedArticle,
           is_read: (() => {
@@ -724,7 +768,13 @@ export const useAppStore = create<AppState>((set, get) => ({
           })()
         } : null
       }));
-      await Promise.all([get().fetchFeeds(), get().fetchArticles(true), get().fetchStats()]);
+      const fetchList = [get().fetchFeeds(), get().fetchStats()];
+      if (get().filterView === 'interests') {
+        fetchList.push(get().fetchInterestBoard());
+      } else {
+        fetchList.push(get().fetchArticles(true));
+      }
+      await Promise.all(fetchList);
     } catch (error) {
       console.error('Failed to mark all as read:', error);
     }
