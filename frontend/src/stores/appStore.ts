@@ -884,7 +884,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await api.refreshAllFeeds();
       await new Promise(r => setTimeout(r, 600));
-      await Promise.all([get().fetchFeeds(), get().fetchArticles(true), get().fetchStats()]);
+      const fetchList = [get().fetchFeeds(), get().fetchStats()];
+      if (get().filterView === 'interests') {
+        fetchList.push(get().fetchInterestBoard());
+      } else {
+        fetchList.push(get().fetchArticles(true));
+      }
+      await Promise.all(fetchList);
     } catch (error) {
       console.error('Failed to refresh feeds:', error);
     } finally {
@@ -894,20 +900,24 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   navigateArticle: (direction) => {
     const { articles, selectedArticle } = get();
-    if (articles.length === 0) return;
+    let articleList = articles;
+    if (articleList.length === 0 && get().filterView === 'interests') {
+      articleList = get().interestGroups.flatMap(g => g.articles);
+    }
+    if (articleList.length === 0) return;
 
     if (!selectedArticle) {
-      get().selectArticle(articles[0]);
+      get().selectArticle(articleList[0]);
       return;
     }
 
-    const currentIndex = articles.findIndex(a => a.id === selectedArticle.id);
+    const currentIndex = articleList.findIndex(a => a.id === selectedArticle.id);
     if (currentIndex === -1) return;
 
-    if (direction === 'next' && currentIndex < articles.length - 1) {
-      get().selectArticle(articles[currentIndex + 1]);
+    if (direction === 'next' && currentIndex < articleList.length - 1) {
+      get().selectArticle(articleList[currentIndex + 1]);
     } else if (direction === 'prev' && currentIndex > 0) {
-      get().selectArticle(articles[currentIndex - 1]);
+      get().selectArticle(articleList[currentIndex - 1]);
     }
   },
 
