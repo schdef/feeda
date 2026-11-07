@@ -1,4 +1,4 @@
-import type { Article, ArticleBoardsResponse, ArticleListResponse, Board, Feed, Folder, Stats } from '../types';
+import type { Article, ArticleBoardsResponse, ArticleListResponse, Board, Feed, Folder, InterestBoardResponse, Stats } from '../types';
 
 const API_BASE = '/api';
 
@@ -135,6 +135,10 @@ export const api = {
     return fetchApi<ArticleListResponse>(`/articles/for-you?${searchParams.toString()}`);
   },
   getArticle: (id: number) => fetchApi<Article>(`/articles/${id}`),
+  getInterestBoard: (maxGroups?: number) => {
+    const q = maxGroups ? `?max_groups=${maxGroups}` : '';
+    return fetchApi<InterestBoardResponse>(`/articles/interest-board${q}`);
+  },
   searchArticles: (query: string) =>
     fetchApi<ArticleListResponse>(`/articles/search?q=${encodeURIComponent(query)}`),
 

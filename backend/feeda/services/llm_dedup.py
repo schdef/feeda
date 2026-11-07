@@ -118,8 +118,15 @@ def _merge_duplicate(primary: Dict, duplicate: Dict):
 
     is_different_article = (duplicate.get("id") and primary.get("id") and duplicate["id"] != primary["id"]) or (feed_title not in sources and feed_title != primary.get("feed_title"))
     if is_different_article:
-        added_count = duplicate.get("cluster_count", 1)
-        primary["cluster_count"] = primary.get("cluster_count", 1) + (added_count if added_count > 0 else 1)
+        if (
+            primary.get("cluster_id") is not None
+            and duplicate.get("cluster_id") is not None
+            and primary["cluster_id"] == duplicate["cluster_id"]
+        ):
+            primary["cluster_count"] = max(primary.get("cluster_count", 1) or 1, duplicate.get("cluster_count", 1) or 1)
+        else:
+            added_count = duplicate.get("cluster_count", 1) or 1
+            primary["cluster_count"] = (primary.get("cluster_count", 1) or 1) + (added_count if added_count > 0 else 1)
     
     if feed_title != primary.get("feed_title") and feed_title not in sources:
         sources.append(feed_title)

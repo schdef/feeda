@@ -158,4 +158,14 @@ class ArticleBoardsResponse(BaseModel):
     article_id: int
     boards: List[BoardMembership]
 
+class InterestGroup(BaseModel):
+    name: str
+    emoji: str
+    slug: str
+    article_count: int
+    articles: List[ArticleResponse]
+
+class InterestBoardResponse(BaseModel):
+    groups: List[InterestGroup]
+
 

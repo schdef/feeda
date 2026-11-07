@@ -88,7 +88,19 @@ export interface Stats {
   for_you_unread_count?: number;
 }
 
+export interface InterestGroup {
+  name: string;
+  emoji: string;
+  slug: string;
+  article_count: number;
+  articles: Article[];
+}
+
+export interface InterestBoardResponse {
+  groups: InterestGroup[];
+}
+
 export type ViewMode = 'magazine' | 'compact';
 export type SortMode = 'date' | 'score';
-export type FilterView = 'all' | 'unread' | 'starred' | 'for-you' | 'today';
+export type FilterView = 'all' | 'unread' | 'starred' | 'for-you' | 'today' | 'interests';
 export type LikelihoodFilter = 'likely' | 'not_likely' | 'all';

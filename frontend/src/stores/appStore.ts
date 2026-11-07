@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { isToday } from 'date-fns';
 import { api } from '../api/client';
-import type { Article, Board, Feed, FilterView, Folder, LikelihoodFilter, SortMode, Stats, ViewMode } from '../types';
+import type { Article, Board, Feed, FilterView, Folder, InterestGroup, LikelihoodFilter, SortMode, Stats, ViewMode } from '../types';
 import {
   saveArticlesOffline,
   getArticlesOffline,
@@ -76,6 +76,8 @@ interface AppState {
   isLoading: boolean;
   isRefreshing: boolean;
   isOffline: boolean;
+  interestGroups: InterestGroup[];
+  interestBoardLoading: boolean;
   
   selectFolderModalOpen: boolean;
   targetFeedForFolder: Feed | null;
@@ -92,6 +94,7 @@ interface AppState {
   fetchStats: () => Promise<void>;
   fetchFeeds: () => Promise<void>;
   fetchBoards: () => Promise<void>;
+  fetchInterestBoard: () => Promise<void>;
   fetchArticles: (reset?: boolean) => Promise<void>;
   loadMoreArticles: () => Promise<void>;
   selectArticle: (article: Article | null) => void;
@@ -178,6 +181,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   isRefreshing: false,
   isOffline: typeof navigator !== 'undefined' ? !navigator.onLine : false,
   
+  interestGroups: [],
+  interestBoardLoading: false,
+  
   page: 1,
   hasMore: true,
 
@@ -187,6 +193,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ stats });
     } catch (e) {
       console.warn('Failed to fetch stats', e);
+    }
+  },
+
+  fetchInterestBoard: async () => {
+    set({ interestBoardLoading: true });
+    try {
+      const res = await api.getInterestBoard(5);
+      set({
+        interestGroups: res.groups || [],
+        interestBoardLoading: false
+      });
+    } catch (error) {
+      console.error('Failed to fetch interest board:', error);
+      set({ interestBoardLoading: false });
     }
   },
 
@@ -222,6 +242,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   fetchArticles: async (reset = true) => {
     const state = get();
+    if (state.filterView === 'interests') {
+      set({ isLoading: false });
+      return;
+    }
     set({ isLoading: true });
     
     if (reset) {
@@ -414,7 +438,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       isLoading: false
     });
     get().fetchStats();
-    get().fetchArticles(true);
+    if (view === 'interests') {
+      get().fetchInterestBoard();
+    } else {
+      get().fetchArticles(true);
+    }
   },
 
   setLikelihoodFilter: (filter) => {
@@ -479,7 +507,16 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   markArticleRead: async (id) => {
     const state = get();
-    const article = state.articles.find(a => a.id === id);
+    let article = state.articles.find(a => a.id === id);
+    if (!article && state.interestGroups.length > 0) {
+      for (const group of state.interestGroups) {
+        const found = group.articles.find(a => a.id === id);
+        if (found) {
+          article = found;
+          break;
+        }
+      }
+    }
     if (article && article.is_read) {
       return;
     }
@@ -495,9 +532,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       const feed = feedId ? s.feeds.find(f => f.id === feedId) : null;
       const folderId = feed?.folder_id;
 
+      const updatedInterestGroups = s.interestGroups.length > 0 ? s.interestGroups.map(group => {
+        const containsArticle = group.articles.some(a => a.id === id);
+        if (!containsArticle) return group;
+        return {
+          ...group,
+          article_count: Math.max(0, group.article_count - 1),
+          articles: group.articles.map(a => a.id === id ? { ...a, is_read: true } : a)
+        };
+      }) : s.interestGroups;
+
       return {
         articles: s.articles.map(a => a.id === id ? { ...a, is_read: true } : a),
         selectedArticle: s.selectedArticle?.id === id ? { ...s.selectedArticle, is_read: true } : s.selectedArticle,
+        interestGroups: updatedInterestGroups,
         stats: wasUnread && s.stats ? {
           ...s.stats,
           unread_count: Math.max(0, s.stats.unread_count - 1),

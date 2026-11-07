@@ -159,6 +159,19 @@ async def test_dedup_functions():
     assert deduped[0]["cluster_count"] == 2
     assert "TechCrunch" in deduped[0]["cluster_sources"]
     assert "The Verge" in deduped[0]["cluster_sources"]
+
+    # Test deduplicate_articles_sync with pre-clustered articles sharing cluster_id (no double-counting)
+    clustered_arts = [
+        {"id": 10, "cluster_id": 999, "cluster_count": 3, "title": "AI Breakthrough", "feed_title": "Source A", "interest_score": 1.0, "published_at": "2026-11-01 10:00:00"},
+        {"id": 11, "cluster_id": 999, "cluster_count": 3, "title": "AI Breakthrough", "feed_title": "Source B", "interest_score": 0.9, "published_at": "2026-11-01 11:00:00"},
+        {"id": 12, "cluster_id": 999, "cluster_count": 3, "title": "AI Breakthrough", "feed_title": "Source C", "interest_score": 0.8, "published_at": "2026-11-01 12:00:00"},
+    ]
+    deduped_clustered = deduplicate_articles_sync(clustered_arts)
+    assert len(deduped_clustered) == 1
+    assert deduped_clustered[0]["cluster_count"] == 3  # Must NOT be 3 + 3 + 3 = 9!
+    assert "Source B" in deduped_clustered[0]["cluster_sources"]
+    assert "Source C" in deduped_clustered[0]["cluster_sources"]
+
     print("Deduplication PASSED!")
 
 async def test_ai_summary_and_story_signature_dedup():
@@ -574,50 +587,70 @@ async def test_backend_api():
         title_b = f"Mars Rover spots water signs {tag} - BBC"
         art_a_id = await db.execute(f"""
             INSERT INTO articles (feed_id, title, url, url_hash, published_at, interest_score, is_read)
-            VALUES (?, ?, 'http://alpha.com/mars/{tag}', 'hash_mars_a_{tag}', '2026-10-30 10:00:00', 50.0, 0)
+            VALUES (?, ?, 'http://alpha.com/mars/{tag}', 'hash_mars_a_{tag}', '2026-11-07 10:00:00', 50.0, 0)
         """, (feed_a_id, title_a))
 
         # Insert Article B: Published at 08:00 (Earlier!)
         art_b_id = await db.execute(f"""
             INSERT INTO articles (feed_id, title, url, url_hash, published_at, interest_score, is_read)
-            VALUES (?, ?, 'http://beta.com/mars/{tag}', 'hash_mars_b_{tag}', '2026-10-30 08:00:00', 50.0, 0)
+            VALUES (?, ?, 'http://beta.com/mars/{tag}', 'hash_mars_b_{tag}', '2026-11-07 08:00:00', 50.0, 0)
         """, (feed_b_id, title_b))
 
-        # Cluster them
-        cid = await create_cluster(db, art_a_id)
-        await db.execute("UPDATE articles SET cluster_id = ? WHERE id = ?", (cid, art_b_id))
-        primary_id = await update_cluster_primary(db, cid)
-        print(f"Cluster {cid}: art_a={art_a_id} (10:00), art_b={art_b_id} (08:00) -> primary={primary_id}")
-        assert primary_id == art_b_id, f"Expected earliest published article {art_b_id} to be primary, got {primary_id}"
+        cid = None
+        try:
+            # Cluster them
+            cid = await create_cluster(db, art_a_id)
+            await db.execute("UPDATE articles SET cluster_id = ? WHERE id = ?", (cid, art_b_id))
+            primary_id = await update_cluster_primary(db, cid)
+            print(f"Cluster {cid}: art_a={art_a_id} (10:00), art_b={art_b_id} (08:00) -> primary={primary_id}")
+            assert primary_id == art_b_id, f"Expected earliest published article {art_b_id} to be primary, got {primary_id}"
 
-        # Query API to verify Article B is returned as primary with cluster_count=2 and other source Feed Alpha
-        r_mars = await client.get(f"/api/articles?feed_id={feed_b_id}&likelihood=all")
-        assert r_mars.status_code == 200
-        mars_articles = [a for a in r_mars.json()["articles"] if a.get("cluster_id") == cid]
-        assert len(mars_articles) == 1, f"Expected exactly 1 clustered article returned, got {len(mars_articles)}"
-        returned_art = mars_articles[0]
-        assert returned_art["id"] == art_b_id, f"Expected primary {art_b_id}, got {returned_art['id']}"
-        assert returned_art["cluster_count"] == 2
-        print(f"Returned article cluster_sources: {returned_art['cluster_sources']}")
-        assert "Feed Alpha" in returned_art["cluster_sources"]
+            # Query API to verify Article B is returned as primary with cluster_count=2 and other source Feed Alpha
+            r_mars = await client.get(f"/api/articles?feed_id={feed_b_id}&likelihood=all")
+            assert r_mars.status_code == 200
+            mars_articles = [a for a in r_mars.json()["articles"] if a.get("cluster_id") == cid]
+            assert len(mars_articles) == 1, f"Expected exactly 1 clustered article returned, got {len(mars_articles)}"
+            returned_art = mars_articles[0]
+            assert returned_art["id"] == art_b_id, f"Expected primary {art_b_id}, got {returned_art['id']}"
+            assert returned_art["cluster_count"] == 2
+            print(f"Returned article cluster_sources: {returned_art['cluster_sources']}")
+            assert "Feed Alpha" in returned_art["cluster_sources"]
 
-        # Article A should NOT be returned because it's a non-primary duplicate in cluster cid
-        r_mars_a = await client.get(f"/api/articles?feed_id={feed_a_id}&likelihood=all")
-        assert r_mars_a.status_code == 200
-        mars_a_articles = [a for a in r_mars_a.json()["articles"] if a.get("cluster_id") == cid]
-        assert len(mars_a_articles) == 0, f"Expected secondary article to be filtered out, got {len(mars_a_articles)}"
+            # Global view: Article B is primary (earlier 08:00), Article A (10:00) is deduplicated out
+            r_mars_global = await client.get("/api/articles?likelihood=all")
+            assert r_mars_global.status_code == 200
+            mars_global_articles = [a for a in r_mars_global.json()["articles"] if a.get("cluster_id") == cid]
+            assert len(mars_global_articles) == 1, f"Expected 1 article in global view, got {len(mars_global_articles)}"
+            assert mars_global_articles[0]["id"] == art_b_id, f"Expected primary {art_b_id} in global view, got {mars_global_articles[0]['id']}"
 
-        # Check get_article endpoint for the primary article
-        r_get_art = await client.get(f"/api/articles/{art_b_id}")
-        assert r_get_art.status_code == 200
-        get_art_data = r_get_art.json()
-        assert get_art_data["cluster_count"] == 2
-        assert "Feed Alpha" in get_art_data["cluster_sources"]
-        print("Chronological priority and multi-source attribution PASSED!")
+            # Scope-Specific Feed Dedup: When querying Feed A, Article A is NEVER suppressed by Feed B's cluster!
+            r_mars_a = await client.get(f"/api/articles?feed_id={feed_a_id}&likelihood=all")
+            assert r_mars_a.status_code == 200
+            mars_a_articles = [a for a in r_mars_a.json()["articles"] if a.get("cluster_id") == cid]
+            assert len(mars_a_articles) == 1, f"Expected Article A to be returned in Feed A view (not suppressed by Feed B), got {len(mars_a_articles)}"
+            assert mars_a_articles[0]["id"] == art_a_id
 
-        # Cleanup test articles and cluster
-        await db.execute("DELETE FROM articles WHERE id IN (?, ?)", (art_a_id, art_b_id))
-        await db.execute("DELETE FROM clusters WHERE id = ?", (cid,))
+            # Unread Cluster Primary Selection: If Article B is marked read, querying is_read=false in global view returns unread Article A!
+            await db.execute("UPDATE articles SET is_read = 1 WHERE id = ?", (art_b_id,))
+            r_unread_global = await client.get("/api/articles?is_read=false&likelihood=all")
+            assert r_unread_global.status_code == 200
+            mars_unread = [a for a in r_unread_global.json()["articles"] if a.get("cluster_id") == cid]
+            assert len(mars_unread) == 1, f"Expected unread Article A to not be suppressed when Article B is read, got {len(mars_unread)}"
+            assert mars_unread[0]["id"] == art_a_id, f"Expected Article A ({art_a_id}) as unread primary, got {mars_unread[0]['id']}"
+            await db.execute("UPDATE articles SET is_read = 0 WHERE id = ?", (art_b_id,))
+
+            # Check get_article endpoint for the primary article
+            r_get_art = await client.get(f"/api/articles/{art_b_id}")
+            assert r_get_art.status_code == 200
+            get_art_data = r_get_art.json()
+            assert get_art_data["cluster_count"] == 2
+            assert "Feed Alpha" in get_art_data["cluster_sources"]
+            print("Chronological priority and multi-source attribution PASSED!")
+        finally:
+            # Cleanup test articles and cluster
+            await db.execute("DELETE FROM articles WHERE id IN (?, ?)", (art_a_id, art_b_id))
+            if cid:
+                await db.execute("DELETE FROM clusters WHERE id = ?", (cid,))
 
         # Test refresh-all feeds
         from unittest.mock import patch, AsyncMock

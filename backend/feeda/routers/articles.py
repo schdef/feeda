@@ -1,21 +1,22 @@
 from fastapi import APIRouter, Query
 from typing import List, Optional, Union
 import asyncio
-from ..models import ArticleResponse, ArticleListResponse, SearchResponse, ArticleBoardsResponse
+from ..models import ArticleResponse, ArticleListResponse, SearchResponse, ArticleBoardsResponse, InterestBoardResponse
 from ..database import db
 from ..services.llm_dedup import deduplicate_articles_sync, cluster_unclustered_articles_background
 from ..services.feed_parser import decode_html_text
 
 router = APIRouter(prefix="/api/articles", tags=["articles"])
 
-async def get_likelihood_thresholds():
-    stats = await db.fetch_one("""
+async def get_likelihood_thresholds(db_instance=None):
+    database = db_instance or db
+    stats = await database.fetch_one("""
         SELECT AVG(interest_score) as avg_score, MIN(interest_score) as min_score, MAX(interest_score) as max_score 
         FROM articles 
         WHERE is_read = 0 AND (published_at IS NULL OR datetime(published_at) >= datetime('now', '-6 months'))
     """)
     if not stats or stats.get('avg_score') is None:
-        stats = await db.fetch_one("""
+        stats = await database.fetch_one("""
             SELECT AVG(interest_score) as avg_score, MIN(interest_score) as min_score, MAX(interest_score) as max_score 
             FROM articles 
             WHERE published_at IS NULL OR datetime(published_at) >= datetime('now', '-6 months')
@@ -26,14 +27,14 @@ async def get_likelihood_thresholds():
 
     likely_threshold = avg_score
 
-    rows = await db.fetch_all("""
+    rows = await database.fetch_all("""
         SELECT interest_score FROM articles 
         WHERE is_read = 0 AND (published_at IS NULL OR datetime(published_at) >= datetime('now', '-6 months'))
         ORDER BY interest_score DESC
     """)
     scores = [float(r['interest_score']) for r in rows if r.get('interest_score') is not None]
     if not scores:
-        rows = await db.fetch_all("""
+        rows = await database.fetch_all("""
             SELECT interest_score FROM articles 
             WHERE published_at IS NULL OR datetime(published_at) >= datetime('now', '-6 months')
             ORDER BY interest_score DESC
@@ -354,6 +355,11 @@ async def dedup_status():
         "clustered_articles": clustered_articles["total"] if clustered_articles else 0,
         "llm_dedup_enabled": True
     }
+
+@router.get("/interest-board", response_model=InterestBoardResponse)
+async def get_interest_board(max_groups: int = Query(default=5, ge=1, le=10)):
+    from ..services.interest_grouper import build_interest_board
+    return await build_interest_board(db, max_groups=max_groups)
 
 @router.get("/{article_id}", response_model=ArticleResponse)
 async def get_article(article_id: int):
