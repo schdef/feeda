@@ -574,7 +574,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await api.markAsRead(id);
     } catch (error) {
-      console.warn('[Offline] Queuing mark-read action for article', id);
+      console.warn('[Offline] Queuing mark-read action for article', id, error);
       queueOfflineAction('read', id);
       set({ isOffline: true });
     }
@@ -649,7 +649,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await api.markAsUnread(id);
     } catch (error) {
-      console.warn('[Offline] Queuing mark-unread action for article', id);
+      console.warn('[Offline] Queuing mark-unread action for article', id, error);
       queueOfflineAction('unread', id);
       set({ isOffline: true });
     }
@@ -695,7 +695,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await api.toggleStar(id);
     } catch (error) {
-      console.warn('[Offline] Queuing toggle-star action for article', id);
+      console.warn('[Offline] Queuing toggle-star action for article', id, error);
       queueOfflineAction('star', id);
       set({ isOffline: true });
     }
@@ -716,7 +716,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await api.voteArticle(id, direction);
     } catch (error) {
-      console.warn('[Offline] Queuing vote action for article', id);
+      console.warn('[Offline] Queuing vote action for article', id, error);
       queueOfflineAction('vote', id, { direction });
       set({ isOffline: true });
     }
