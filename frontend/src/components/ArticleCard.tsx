@@ -167,7 +167,7 @@ export function ArticleCard({ article, viewMode }: Props) {
       data-article-id={article.id}
       data-is-read={article.is_read}
       className={clsx(
-        'px-4 py-3.5 cursor-pointer transition-colors border-b border-gray-900/80',
+        'px-4 py-2.5 sm:py-3 cursor-pointer transition-colors border-b border-gray-900/80',
         isSelected ? 'bg-gray-800/80' : 'hover:bg-gray-900/40'
       )}
     >
@@ -179,7 +179,7 @@ export function ArticleCard({ article, viewMode }: Props) {
             onClick={handleTitleClick}
             title="Open original website"
             className={clsx(
-              "text-[15px] sm:text-base leading-snug tracking-tight mb-1 cursor-pointer transition-colors hover:text-blue-400 hover:underline",
+              "text-[14px] sm:text-[15px] leading-snug tracking-tight mb-1 cursor-pointer transition-colors hover:text-blue-400 hover:underline",
               !article.is_read 
                 ? "font-bold text-gray-100" 
                 : "font-normal text-gray-400"
@@ -189,7 +189,7 @@ export function ArticleCard({ article, viewMode }: Props) {
           </h3>
 
           {/* Source / relative time (e.g. "The Verge - All Posts / now") */}
-          <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1.5 font-medium">
+          <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1 font-medium">
             {isReadLater && (
               <>
                 <button 
@@ -243,9 +243,9 @@ export function ArticleCard({ article, viewMode }: Props) {
 
         {/* Right Column: Square Thumbnail Image & Bookmark */}
         {isReadLater ? (
-          <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <div className="flex flex-col items-end gap-1 sm:gap-1.5 shrink-0">
             {hasImage ? (
-              <div className="w-20 h-20 rounded-lg overflow-hidden shrink-0 shadow-sm border border-gray-800">
+              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-lg overflow-hidden shrink-0 shadow-sm border border-gray-800">
                 <img 
                   src={article.image_url!} 
                   alt="" 
@@ -255,9 +255,9 @@ export function ArticleCard({ article, viewMode }: Props) {
                 />
               </div>
             ) : (
-              <div className="w-20 h-20 rounded-lg border border-gray-800 bg-gray-900/30 shrink-0" />
+              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-lg border border-gray-800 bg-gray-900/30 shrink-0" />
             )}
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5 sm:gap-1">
               <button
                 onClick={handleStarClick}
                 className="p-1 text-emerald-400 hover:text-red-400 transition-colors"
@@ -302,9 +302,9 @@ export function ArticleCard({ article, viewMode }: Props) {
             </div>
           </div>
         ) : (
-          <div className="flex flex-col items-end gap-2 shrink-0">
+          <div className="flex flex-col items-end gap-1 sm:gap-1.5 shrink-0">
             {hasImage && (
-              <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-lg overflow-hidden bg-gray-800 shrink-0 border border-gray-800/80 shadow-sm">
+              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-lg overflow-hidden bg-gray-800 shrink-0 border border-gray-800/80 shadow-sm">
                 <img 
                   src={article.image_url!} 
                   alt="" 
@@ -315,7 +315,7 @@ export function ArticleCard({ article, viewMode }: Props) {
               </div>
             )}
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5 sm:gap-1">
               <button
                 onClick={(e) => {
                   e.stopPropagation();

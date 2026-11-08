@@ -284,7 +284,7 @@ export function ArticleList() {
     <div className="flex flex-col h-full bg-gray-950 text-gray-200">
       {/* Top App Bar matching Feedly Screenshot 2 */}
       <header className="px-4 py-3 border-b border-gray-900 bg-gray-950/90 backdrop-blur-md sticky top-0 z-20 shrink-0">
-        <div className={clsx("w-full flex items-center justify-between", !selectedArticle && "max-w-4xl lg:max-w-5xl mx-auto")}>
+        <div className={clsx("w-full flex items-center justify-between", !selectedArticle && "max-w-3xl mx-auto")}>
           {/* Left: Unread badge pill button that opens drawer on mobile */}
           <div className="flex items-center gap-2">
             <button 
@@ -529,7 +529,7 @@ export function ArticleList() {
       {/* Likelihood Filter Segmented Bar - only for general streams and feeds */}
       {!selectedBoardId && filterView !== 'for-you' && filterView !== 'starred' && (
         <div className="px-4 py-2 border-b border-gray-900/80 bg-gray-950/70 shrink-0">
-          <div className={clsx("w-full flex items-center justify-start gap-1.5 overflow-x-auto", !selectedArticle && "max-w-4xl lg:max-w-5xl mx-auto")}>
+          <div className={clsx("w-full flex items-center justify-start gap-1.5 overflow-x-auto", !selectedArticle && "max-w-3xl mx-auto")}>
             <button
               onClick={() => setLikelihoodFilter('likely')}
               className={clsx(
@@ -593,7 +593,7 @@ export function ArticleList() {
       {/* For You Sub-header with showRead toggle */}
       {!selectedBoardId && filterView === 'for-you' && (
         <div className="px-4 py-2 border-b border-gray-900/80 bg-gray-950/70 shrink-0">
-          <div className={clsx("w-full flex items-center justify-between", !selectedArticle && "max-w-4xl lg:max-w-5xl mx-auto")}>
+          <div className={clsx("w-full flex items-center justify-between", !selectedArticle && "max-w-3xl mx-auto")}>
             <div className="flex items-center gap-1.5 text-xs text-purple-400 font-semibold">
               <Sparkles size={14} className="text-purple-400" />
               <span>Personalized Top Recommendations</span>
@@ -623,7 +623,7 @@ export function ArticleList() {
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto pb-32"
       >
-        <div className={clsx("w-full mx-auto", !selectedArticle && "max-w-4xl lg:max-w-5xl px-2 sm:px-6 py-2")}>
+        <div className={clsx("w-full mx-auto", !selectedArticle && "max-w-3xl px-2 sm:px-6 py-2")}>
           {currentBoard && (
             <div className="px-4 py-3 mb-2 rounded-xl bg-gray-900/60 border border-gray-800/60">
               <div className="flex items-center gap-2 text-xs text-blue-400 font-semibold">
