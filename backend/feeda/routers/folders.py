@@ -1,7 +1,9 @@
+import asyncio
 from fastapi import APIRouter, HTTPException
 from typing import List
 from ..models import FolderCreate, FolderUpdate, FolderResponse
 from ..database import db
+from ..services.feed_poller import poll_single_feed
 
 router = APIRouter(prefix="/api/folders", tags=["folders"])
 
@@ -115,3 +117,11 @@ async def update_folder(folder_id: int, folder: FolderUpdate):
 async def delete_folder(folder_id: int):
     await db.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
     return {"status": "ok"}
+
+@router.post("/{folder_id}/refresh")
+async def refresh_folder(folder_id: int):
+    feeds = await db.fetch_all("SELECT id FROM feeds WHERE folder_id = ?", (folder_id,))
+    if not feeds:
+        return {"status": "ok", "count": 0}
+    await asyncio.gather(*(poll_single_feed(f['id']) for f in feeds), return_exceptions=True)
+    return {"status": "ok", "count": len(feeds)}

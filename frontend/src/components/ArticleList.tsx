@@ -37,6 +37,7 @@ export function ArticleList() {
     deleteFeed,
     toggleSidebar,
     refreshFeed,
+    refreshFolder,
     refreshAllFeeds,
     isRefreshing,
     markArticleRead,
@@ -134,7 +135,7 @@ export function ArticleList() {
   const badgeText = selectedBoardId ? `${articles.length}` : formatUnreadCount(unreadCount);
 
   const visibleArticles = useMemo(() => {
-    const raw = (!showRead && (filterView === 'for-you' || filterView === 'unread' || filterView === 'today')) 
+    const raw = !showRead 
       ? articles.filter(a => !a.is_read || a.id === selectedArticle?.id) 
       : articles;
 
@@ -169,7 +170,7 @@ export function ArticleList() {
       deduped.push(a);
     }
     return deduped;
-  }, [articles, showRead, filterView, selectedArticle]);
+  }, [articles, showRead, selectedArticle]);
 
   const groupedArticles = useMemo(() => {
     if (visibleArticles.length === 0) return [];
@@ -351,10 +352,18 @@ export function ArticleList() {
             </button>
 
             <button 
-              onClick={() => refreshAllFeeds()}
+              onClick={() => {
+                if (selectedFolderId) {
+                  refreshFolder(selectedFolderId);
+                } else if (selectedFeedId) {
+                  refreshFeed(selectedFeedId);
+                } else {
+                  refreshAllFeeds();
+                }
+              }}
               disabled={isRefreshing}
               className="p-1.5 hover:text-gray-100 hover:bg-gray-800/60 rounded-md transition-colors"
-              title="Refresh feeds"
+              title={selectedFolderId ? "Refresh category feeds" : selectedFeedId ? "Refresh feed" : "Refresh feeds"}
             >
               <RefreshCw size={19} className={isRefreshing ? "animate-spin text-blue-400" : ""} />
             </button>
@@ -492,6 +501,17 @@ export function ArticleList() {
                   {selectedFolder && (
                     <>
                       <div className="h-px bg-gray-800 my-1" />
+                      <button
+                        onClick={() => {
+                          setMenuOpen(false);
+                          refreshFolder(selectedFolder.id);
+                        }}
+                        disabled={isRefreshing}
+                        className="w-full text-left px-3 py-2 hover:bg-gray-800 text-gray-300 flex items-center gap-2"
+                      >
+                        <RefreshCw size={13} className={clsx("text-gray-400", isRefreshing && "animate-spin text-blue-400")} />
+                        <span>Refresh Category</span>
+                      </button>
                       <button
                         onClick={async () => {
                           setMenuOpen(false);

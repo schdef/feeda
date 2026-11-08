@@ -41,6 +41,7 @@ class Database:
     async def close(self):
         if self._conn:
             await self._conn.close()
+            self._conn = None
 
     async def execute(self, query: str, params: tuple = ()):
         if not self._conn:

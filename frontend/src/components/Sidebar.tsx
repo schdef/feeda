@@ -54,6 +54,7 @@ export function Sidebar() {
     stats,
     refreshAllFeeds,
     refreshFeed,
+    refreshFolder,
     isRefreshing
   } = useAppStore();
 
@@ -345,6 +346,16 @@ export function Sidebar() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
+                      refreshFolder(folder.id);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-500 hover:text-gray-300 rounded transition-opacity shrink-0"
+                    title="Refresh category feeds"
+                  >
+                    <RefreshCw size={13} className={isRefreshing ? "animate-spin text-blue-400" : ""} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
                       setMenuFolderId(menuFolderId === folder.id ? null : folder.id);
                       setMenuFeedId(null);
                       setMenuBoardId(null);
@@ -361,6 +372,16 @@ export function Sidebar() {
                     className="absolute right-2 top-8 z-30 w-40 bg-gray-900 border border-gray-800 rounded-lg shadow-xl py-1 text-xs text-gray-200"
                     onClick={(e) => e.stopPropagation()}
                   >
+                    <button
+                      onClick={async () => {
+                        setMenuFolderId(null);
+                        await refreshFolder(folder.id);
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-800 text-left text-gray-300 hover:text-gray-100"
+                    >
+                      <RefreshCw size={13} className={isRefreshing ? "animate-spin text-blue-400" : ""} />
+                      <span>Refresh Category</span>
+                    </button>
                     <button
                       onClick={async () => {
                         setMenuFolderId(null);

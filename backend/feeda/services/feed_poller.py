@@ -225,11 +225,14 @@ async def poll_single_feed(feed_id: int):
                 entry['author'] = decode_html_text(entry.get('author'))
                 if entry.get('content'):
                     entry['content'] = decode_html_text(entry['content'])
-                await db.execute("""
-                    UPDATE articles 
-                    SET title = ?, summary = ?, content = ?, published_at = ?, url = ?, url_hash = ?
-                    WHERE id = ?
-                """, (entry['title'], entry['summary'], entry.get('content'), entry['published_at'], entry['url'], uhash, existing_article['id']))
+                try:
+                    await db.execute("""
+                        UPDATE articles 
+                        SET title = ?, summary = ?, content = ?, published_at = ?, url = ?, url_hash = ?
+                        WHERE id = ?
+                    """, (entry['title'], entry['summary'], entry.get('content'), entry['published_at'], entry['url'], uhash, existing_article['id']))
+                except Exception as e:
+                    logger.warning(f"Error updating article {existing_article['id']} in feed {feed_id}: {e}")
                 continue
 
             entry['title'] = decode_html_text(entry.get('title'))
@@ -256,19 +259,22 @@ async def poll_single_feed(feed_id: int):
             entry['feed_id'] = feed_id
             score = await score_article(entry, db)
 
-            await db.execute("""
-                INSERT INTO articles (feed_id, cluster_id, guid, url, url_hash, title, author, summary, content, image_url, published_at, title_shingles, content_simhash, interest_score, ai_summary, story_signature)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (feed_id, cluster_id, entry['guid'], entry['url'], uhash, entry['title'], entry['author'], entry['summary'], entry['content'], image_url, entry['published_at'], shingles, simhash_val, score, entry['ai_summary'], entry['story_signature']))
+            try:
+                await db.execute("""
+                    INSERT INTO articles (feed_id, cluster_id, guid, url, url_hash, title, author, summary, content, image_url, published_at, title_shingles, content_simhash, interest_score, ai_summary, story_signature)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (feed_id, cluster_id, entry['guid'], entry['url'], uhash, entry['title'], entry['author'], entry['summary'], entry['content'], image_url, entry['published_at'], shingles, simhash_val, score, entry['ai_summary'], entry['story_signature']))
 
-            if cluster_id:
-                await update_cluster_primary(db, cluster_id)
+                if cluster_id:
+                    await update_cluster_primary(db, cluster_id)
 
-            await db.execute("""
-                INSERT INTO feed_affinity (feed_id, articles_received, articles_read, affinity_score)
-                VALUES (?, 1, 0, 0.5)
-                ON CONFLICT(feed_id) DO UPDATE SET articles_received = articles_received + 1
-            """, (feed_id,))
+                await db.execute("""
+                    INSERT INTO feed_affinity (feed_id, articles_received, articles_read, affinity_score)
+                    VALUES (?, 1, 0, 0.5)
+                    ON CONFLICT(feed_id) DO UPDATE SET articles_received = articles_received + 1
+                """, (feed_id,))
+            except Exception as e:
+                logger.warning(f"Error inserting article {entry.get('url')} in feed {feed_id}: {e}")
             
         etag = resp_headers.get('ETag') if not used_proxy else None
         last_mod = resp_headers.get('Last-Modified') if not used_proxy else None

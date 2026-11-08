@@ -7,7 +7,9 @@ import {
   LayoutGrid, 
   List, 
   ArrowUp,
-  Inbox
+  Inbox,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import { ArticleCard } from './ArticleCard';
@@ -25,7 +27,9 @@ export function InterestBoardView() {
     setViewMode, 
     stats,
     toggleSidebar,
-    isOffline
+    isOffline,
+    showRead,
+    toggleShowRead
   } = useAppStore();
 
   const columnRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -45,7 +49,10 @@ export function InterestBoardView() {
     });
   };
 
-  const totalBoardArticles = interestGroups.reduce((acc, g) => acc + (g.articles?.length || 0), 0);
+  const totalBoardArticles = interestGroups.reduce((acc, g) => {
+    const list = !showRead ? (g.articles?.filter(a => !a.is_read) || []) : (g.articles || []);
+    return acc + list.length;
+  }, 0);
 
   const badgeText = formatUnreadCount(stats?.unread_count || 0);
 
@@ -75,7 +82,7 @@ export function InterestBoardView() {
                   </h1>
                   <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shrink-0">
                     <Sparkles size={10} />
-                    AI Grouped • Unread
+                    {showRead ? 'AI Grouped • All' : 'AI Grouped • Unread'}
                   </span>
                 </div>
               </div>
@@ -103,6 +110,21 @@ export function InterestBoardView() {
               )}
               <span className="hidden lg:inline text-[11px] font-medium capitalize">
                 {viewMode === 'magazine' ? 'Magazine' : 'List'}
+              </span>
+            </button>
+
+            {/* Show Read Toggle */}
+            <button
+              onClick={toggleShowRead}
+              className={clsx(
+                "p-1.5 rounded-md transition-colors flex items-center gap-1 text-xs",
+                showRead ? "text-indigo-400 bg-gray-800/60" : "text-gray-400 hover:text-gray-100 hover:bg-gray-800/60"
+              )}
+              title={showRead ? "Showing read articles (click to hide)" : "Hiding read articles (click to show)"}
+            >
+              {showRead ? <Eye size={17} /> : <EyeOff size={17} />}
+              <span className="hidden lg:inline text-[11px] font-medium">
+                {showRead ? "Read visible" : "Unread only"}
               </span>
             </button>
 
@@ -185,6 +207,7 @@ export function InterestBoardView() {
           /* Horizontal Kanban Board */
           <div className="h-full overflow-x-auto overflow-y-hidden px-4 md:px-6 py-4 flex gap-4 md:gap-5 snap-x snap-mandatory md:snap-none scroll-smooth">
             {interestGroups.map(group => {
+              const displayArticles = !showRead ? (group.articles?.filter(a => !a.is_read) || []) : (group.articles || []);
               const unreadArticles = group.articles?.filter(a => !a.is_read) || [];
               const hasUnread = unreadArticles.length > 0;
 
@@ -246,8 +269,8 @@ export function InterestBoardView() {
                     ref={el => { columnRefs.current[group.slug] = el; }}
                     className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0"
                   >
-                    {group.articles && group.articles.length > 0 ? (
-                      group.articles.map(article => (
+                    {displayArticles && displayArticles.length > 0 ? (
+                      displayArticles.map(article => (
                         <div 
                           key={article.id}
                           className={clsx(

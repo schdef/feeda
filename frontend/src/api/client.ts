@@ -67,6 +67,8 @@ export const api = {
       body: JSON.stringify({ name }),
     }),
   deleteFolder: (id: number) => fetchApi<void>(`/folders/${id}`, { method: 'DELETE' }),
+  refreshFolder: (id: number) =>
+    fetchApi<{ status: string; count: number }>(`/folders/${id}/refresh`, { method: 'POST' }),
 
   // Boards
   getBoards: () => fetchApi<{ boards: Board[] }>('/boards'),

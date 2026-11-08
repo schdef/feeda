@@ -142,6 +142,7 @@ interface AppState {
   deleteFolder: (id: number) => Promise<void>;
   deleteFeed: (id: number) => Promise<void>;
   refreshFeed: (id: number) => Promise<void>;
+  refreshFolder: (id: number) => Promise<void>;
   refreshAllFeeds: () => Promise<void>;
   navigateArticle: (direction: 'next' | 'prev') => void;
   importOpml: (file: File) => Promise<void>;
@@ -272,16 +273,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         };
         if (state.selectedFeedId) params.feed_id = state.selectedFeedId;
         if (state.selectedFolderId) params.folder_id = state.selectedFolderId;
-        if (state.filterView === 'unread') {
+        if (state.filterView === 'unread' || state.filterView === 'today') {
           params.is_read = false;
-        } else if (state.filterView === 'today') {
-          params.is_read = false;
-          params.today = true;
-          params.likelihood = 'all';
-        } else if (state.filterView !== 'starred') {
-          if (!state.showRead) {
-            params.is_read = false;
+          if (state.filterView === 'today') {
+            params.today = true;
+            params.likelihood = 'all';
           }
+        } else if (!state.showRead) {
+          params.is_read = false;
         }
         if (state.filterView === 'starred') params.is_starred = true;
         
@@ -313,7 +312,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Fallback: Query from IndexedDB
       const cached = await getArticlesOffline({
         feedId: state.selectedFeedId,
-        isRead: (state.filterView === 'unread' || state.filterView === 'today' || (!state.showRead && state.filterView !== 'starred')) ? false : undefined,
+        isRead: (state.filterView === 'unread' || state.filterView === 'today' || !state.showRead) ? false : undefined,
         isStarred: state.filterView === 'starred' ? true : undefined,
         limit: 50
       });
@@ -876,6 +875,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       await Promise.all([get().fetchArticles(true), get().fetchStats()]);
     } catch (error) {
       console.error('Failed to refresh feed:', error);
+    }
+  },
+
+  refreshFolder: async (id) => {
+    set({ isRefreshing: true });
+    try {
+      await api.refreshFolder(id);
+      await Promise.all([get().fetchFeeds(), get().fetchStats(), get().fetchArticles(true)]);
+    } catch (error) {
+      console.error('Failed to refresh category feeds:', error);
+    } finally {
+      set({ isRefreshing: false });
     }
   },
 
