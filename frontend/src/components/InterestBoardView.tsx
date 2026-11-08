@@ -50,7 +50,7 @@ export function InterestBoardView() {
   };
 
   const totalBoardArticles = interestGroups.reduce((acc, g) => {
-    const list = !showRead ? (g.articles?.filter(a => !a.is_read) || []) : (g.articles || []);
+    const list = !showRead ? (g.articles?.filter(a => !a.is_read || a.is_starred) || []) : (g.articles || []);
     return acc + list.length;
   }, 0);
 
@@ -82,7 +82,7 @@ export function InterestBoardView() {
                   </h1>
                   <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shrink-0">
                     <Sparkles size={10} />
-                    {showRead ? 'AI Grouped • All' : 'AI Grouped • Unread'}
+                    {showRead ? 'AI Grouped • All' : 'AI Grouped • Unread & Read Later'}
                   </span>
                 </div>
               </div>
@@ -193,7 +193,7 @@ export function InterestBoardView() {
               All caught up!
             </h2>
             <p className="text-sm text-gray-400 mb-6 leading-relaxed">
-              No unread articles to group right now. As new feeds sync, Feeda will cluster articles into your dynamic interest board.
+              No unread or read later articles to group right now. As new feeds sync or you save articles for read later, Feeda will cluster articles into your dynamic interest board.
             </p>
             <button
               onClick={() => fetchInterestBoard()}
@@ -207,7 +207,9 @@ export function InterestBoardView() {
           /* Horizontal Kanban Board */
           <div className="h-full overflow-x-auto overflow-y-hidden px-4 md:px-6 py-4 flex gap-4 md:gap-5 snap-x snap-mandatory md:snap-none scroll-smooth">
             {interestGroups.map(group => {
-              const displayArticles = !showRead ? (group.articles?.filter(a => !a.is_read) || []) : (group.articles || []);
+              const displayArticles = !showRead 
+                ? (group.articles?.filter(a => !a.is_read || a.is_starred) || []) 
+                : (group.articles || []);
               const unreadArticles = group.articles?.filter(a => !a.is_read) || [];
               const hasUnread = unreadArticles.length > 0;
 
@@ -237,9 +239,9 @@ export function InterestBoardView() {
                             ? "bg-indigo-500/15 text-indigo-300 border-indigo-500/30" 
                             : "bg-gray-800/60 text-gray-500 border-gray-700/40"
                         )}
-                        title={`${group.article_count} unread articles`}
+                        title={`${displayArticles.length} articles (${unreadArticles.length} unread)`}
                       >
-                        {group.article_count}
+                        {displayArticles.length}
                       </span>
 
                       {/* Quick mark column as read */}

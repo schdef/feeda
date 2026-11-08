@@ -193,6 +193,43 @@ class TestInterestBoard(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(art.is_starred)
         self.assertIsNotNone(art.likelihood_tier)
 
+    async def test_read_later_starred_articles_included_whether_read_or_not(self):
+        # 1. Insert an article with is_read = 1, is_starred = 1 (read-later item that was already read)
+        # 2. Insert an article with is_read = 0, is_starred = 1 (read-later item unread)
+        # 3. Insert an article with is_read = 0, is_starred = 0 (normal unread article)
+        # 4. Insert an article with is_read = 1, is_starred = 0 (normal read article)
+        await self.db.execute("""
+            INSERT INTO articles (id, feed_id, url, title, summary, interest_score, is_read, is_starred)
+            VALUES 
+                (1, 1, 'https://example.com/1', 'Read and Starred AI LLM', 'OpenAI ChatGPT model', 90.0, 1, 1),
+                (2, 1, 'https://example.com/2', 'Unread and Starred EV', 'Tesla Cybertruck electric vehicle', 80.0, 0, 1),
+                (3, 1, 'https://example.com/3', 'Unread Normal Cyber', 'Zero-day vulnerability security flaw', 70.0, 0, 0),
+                (4, 1, 'https://example.com/4', 'Read Normal Article', 'General news', 60.0, 1, 0)
+        """)
+
+        res = await build_interest_board(self.db, max_groups=5)
+        all_articles = [art for g in res["groups"] for art in g["articles"]]
+        returned_ids = {art["id"] for art in all_articles}
+
+        # Assert that the 2 read-later articles and the 1 unread article are included in the groups (total 3 articles)
+        self.assertEqual(len(all_articles), 3)
+        self.assertIn(1, returned_ids)
+        self.assertIn(2, returned_ids)
+        self.assertIn(3, returned_ids)
+
+        # Assert that the normal read article (is_read = 1, is_starred = 0) is NOT included
+        self.assertNotIn(4, returned_ids)
+
+        # Assert that the already-read read-later article has is_read = True and is_starred = True
+        read_starred_art = next(art for art in all_articles if art["id"] == 1)
+        self.assertTrue(read_starred_art["is_read"])
+        self.assertTrue(read_starred_art["is_starred"])
+
+        # Also verify unread starred article
+        unread_starred_art = next(art for art in all_articles if art["id"] == 2)
+        self.assertFalse(unread_starred_art["is_read"])
+        self.assertTrue(unread_starred_art["is_starred"])
+
 
 class TestInterestBoardEndpoint(unittest.TestCase):
     @classmethod

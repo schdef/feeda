@@ -534,10 +534,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       const updatedInterestGroups = s.interestGroups.length > 0 ? s.interestGroups.map(group => {
         const containsArticle = group.articles.some(a => a.id === id);
         if (!containsArticle) return group;
+        const updatedArticles = group.articles.map(a => a.id === id ? { ...a, is_read: true } : a);
+        const visibleCount = updatedArticles.filter(a => !a.is_read || a.is_starred).length;
         return {
           ...group,
-          article_count: Math.max(0, group.article_count - 1),
-          articles: group.articles.map(a => a.id === id ? { ...a, is_read: true } : a)
+          article_count: visibleCount,
+          articles: updatedArticles
         };
       }) : s.interestGroups;
 
@@ -609,10 +611,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       const updatedInterestGroups = s.interestGroups.length > 0 ? s.interestGroups.map(group => {
         const containsArticle = group.articles.some(a => a.id === id);
         if (!containsArticle) return group;
+        const updatedArticles = group.articles.map(a => a.id === id ? { ...a, is_read: false } : a);
+        const visibleCount = updatedArticles.filter(a => !a.is_read || a.is_starred).length;
         return {
           ...group,
-          article_count: group.article_count + 1,
-          articles: group.articles.map(a => a.id === id ? { ...a, is_read: false } : a)
+          article_count: visibleCount,
+          articles: updatedArticles
         };
       }) : s.interestGroups;
 
@@ -669,17 +673,31 @@ export const useAppStore = create<AppState>((set, get) => ({
   toggleArticleStar: async (id) => {
     let nextStarred = false;
     set((s) => {
-      const article = s.articles.find(a => a.id === id) || (s.selectedArticle?.id === id ? s.selectedArticle : null);
+      let article = s.articles.find(a => a.id === id) || (s.selectedArticle?.id === id ? s.selectedArticle : null);
+      if (!article && s.interestGroups.length > 0) {
+        for (const group of s.interestGroups) {
+          const found = group.articles?.find(a => a.id === id);
+          if (found) {
+            article = found;
+            break;
+          }
+        }
+      }
       nextStarred = article ? !article.is_starred : false;
       return {
         articles: s.filterView === 'starred' && !nextStarred 
           ? s.articles.filter(a => a.id !== id) 
           : s.articles.map(a => a.id === id ? { ...a, is_starred: nextStarred } : a),
         selectedArticle: s.selectedArticle?.id === id ? { ...s.selectedArticle, is_starred: nextStarred } : s.selectedArticle,
-        interestGroups: s.interestGroups.length > 0 ? s.interestGroups.map(group => ({
-          ...group,
-          articles: group.articles.map(a => a.id === id ? { ...a, is_starred: nextStarred } : a)
-        })) : s.interestGroups,
+        interestGroups: s.interestGroups.length > 0 ? s.interestGroups.map(group => {
+          const updatedArticles = group.articles.map(a => a.id === id ? { ...a, is_starred: nextStarred } : a);
+          const visibleCount = updatedArticles.filter(a => !a.is_read || a.is_starred).length;
+          return {
+            ...group,
+            article_count: visibleCount,
+            articles: updatedArticles
+          };
+        }) : s.interestGroups,
         stats: s.stats ? {
           ...s.stats,
           starred_count: nextStarred 

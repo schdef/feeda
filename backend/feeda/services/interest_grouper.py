@@ -285,13 +285,13 @@ def classify_article_topic(article: Dict[str, Any]) -> str:
 
 async def build_interest_board(db, max_groups: int = 5) -> Dict[str, Any]:
     """
-    Builds an Interest Board grouping unread articles into top topical clusters.
+    Builds an Interest Board grouping unread and starred (read-later) articles into top topical clusters.
     
-    1. Fetches unread articles (is_read = 0) with feed details.
+    1. Fetches unread or starred articles ((a.is_read = 0 OR a.is_starred = 1)) with feed details.
     2. Decodes HTML fields, computes likelihood tiers and story signatures.
     3. Categorizes each article into predefined topical taxonomy.
     4. Selects top max_groups topics by article count, capturing remaining/unmatched
-       articles in 'General & Other 📰' so no unread items are lost.
+       articles in 'General & Other 📰' so no unread or read-later items are lost.
     5. Caps each group to max 25 articles, sorted by interest_score DESC then published_at DESC.
     """
     query = """
@@ -305,7 +305,7 @@ async def build_interest_board(db, max_groups: int = 5) -> Dict[str, Any]:
                 WHERE ac2.cluster_id = a.cluster_id AND ac2.id != a.id) as other_cluster_sources
         FROM articles a
         LEFT JOIN feeds f ON a.feed_id = f.id
-        WHERE a.is_read = 0
+        WHERE (a.is_read = 0 OR a.is_starred = 1)
         ORDER BY a.interest_score DESC, a.published_at DESC, a.id DESC
     """
     items = await db.fetch_all(query)
@@ -351,14 +351,22 @@ async def build_interest_board(db, max_groups: int = 5) -> Dict[str, Any]:
         t["slug"] for t in TOPIC_TAXONOMY if len(grouped_articles[t["slug"]]) > 0
     ]
 
-    # Rank specific topics by article count DESC, then sum of interest_score DESC
-    specific_slugs_with_articles.sort(
-        key=lambda s: (
-            len(grouped_articles[s]),
-            sum(float(a.get("interest_score") or 0.0) for a in grouped_articles[s])
-        ),
-        reverse=True
-    )
+    def topic_relevance_key(slug: str):
+        arts = grouped_articles.get(slug, [])
+        if not arts:
+            return (0, 0.0, 0.0, 0)
+        # 1. Number of high/medium likelihood articles
+        high_or_med = sum(1 for a in arts if a.get("likelihood_tier") in ("high", "medium"))
+        # 2. Sum of interest scores
+        sum_score = sum(float(a.get("interest_score") or 0.0) for a in arts)
+        # 3. Peak interest score
+        max_score = max(float(a.get("interest_score") or 0.0) for a in arts)
+        # 4. Total count of articles
+        count = len(arts)
+        return (high_or_med, sum_score, max_score, count)
+
+    # Rank specific topics by user relevance first
+    specific_slugs_with_articles.sort(key=topic_relevance_key, reverse=True)
 
     general_articles = grouped_articles.get("general-other", [])
 
@@ -373,11 +381,11 @@ async def build_interest_board(db, max_groups: int = 5) -> Dict[str, Any]:
             selected_slugs.append("general-other")
     else:
         if max_groups == 1:
-            # When max_groups is 1, pick the single largest group
+            # When max_groups is 1, pick the single most relevant group
             candidates = list(specific_slugs_with_articles)
             if general_articles:
                 candidates.append("general-other")
-            candidates.sort(key=lambda s: len(grouped_articles[s]), reverse=True)
+            candidates.sort(key=topic_relevance_key, reverse=True)
             selected_slugs = candidates[:1]
         else:
             num_specific_slots = max_groups - 1
