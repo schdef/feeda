@@ -230,6 +230,43 @@ class TestInterestBoard(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(unread_starred_art["is_read"])
         self.assertTrue(unread_starred_art["is_starred"])
 
+    async def test_topic_ranking_prioritizes_relevance(self):
+        # Insert 5 EV articles with low interest_score (low likelihood)
+        for i in range(5):
+            await self.db.execute(
+                """
+                INSERT INTO articles (id, feed_id, url, title, summary, interest_score, published_at, is_read)
+                VALUES (?, 1, ?, 'Tesla EV electric battery car', 'Electric vehicles mobility update', 0.01, '2026-11-01T10:00:00', 0)
+                """,
+                (100 + i, f"https://ev.example.com/{i}")
+            )
+
+        # Insert 1 AI article with high interest_score (high likelihood)
+        await self.db.execute(
+            """
+            INSERT INTO articles (id, feed_id, url, title, summary, interest_score, published_at, is_read)
+            VALUES (201, 1, 'https://ai.example.com/1', 'OpenAI ChatGPT LLM model', 'Artificial intelligence update', 50.0, '2026-11-02T10:00:00', 0)
+            """
+        )
+
+        # Insert 2 Cyber articles with medium interest_score
+        for i in range(2):
+            await self.db.execute(
+                """
+                INSERT INTO articles (id, feed_id, url, title, summary, interest_score, published_at, is_read)
+                VALUES (?, 1, ?, 'Zero-day vulnerability security flaw', 'Cybersecurity patch notice', 0.5, '2026-11-03T10:00:00', 0)
+                """,
+                (300 + i, f"https://cyber.example.com/{i}")
+            )
+
+        res = await build_interest_board(self.db, max_groups=5)
+        slug_order = [g["slug"] for g in res["groups"]]
+
+        # AI should rank first because it has high/medium likelihood article with highest score,
+        # Cyber second (higher sum/peak score than EV),
+        # EV third despite having the most articles (5 articles).
+        self.assertEqual(slug_order, ["ai-machine-learning", "cybersecurity-privacy", "electric-vehicles-mobility"])
+
 
 class TestInterestBoardEndpoint(unittest.TestCase):
     @classmethod
