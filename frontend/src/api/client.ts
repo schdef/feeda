@@ -113,6 +113,7 @@ export const api = {
     page?: number;
     limit?: number;
     likelihood?: 'likely' | 'not_likely' | 'all';
+    dedup?: boolean;
   }) => {
     const searchParams = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {

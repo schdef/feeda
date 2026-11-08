@@ -100,9 +100,11 @@ async def list_articles(
     likely_threshold, high_threshold, min_score, max_score = await get_likelihood_thresholds()
     score_spread = max_score - min_score
 
-    if likelihood is not None:
+    if is_starred and (likelihood is None or likelihood == "likely"):
+        effective_likelihood = "all"
+    elif likelihood is not None:
         effective_likelihood = likelihood
-    elif today or feed_id or folder_id:
+    elif today or feed_id or folder_id or is_starred:
         effective_likelihood = "all"
     else:
         effective_likelihood = "likely"
@@ -115,7 +117,7 @@ async def list_articles(
         where.append("a.interest_score < ?")
         params.append(likely_threshold)
 
-    if effective_likelihood == "likely" or sort == "score":
+    if (effective_likelihood == "likely" or sort == "score") and not is_starred:
         where.append("(a.published_at IS NULL OR datetime(a.published_at) >= datetime('now', '-6 months'))")
 
     if sort == "date":
@@ -123,7 +125,9 @@ async def list_articles(
     else:
         order_clause = "ORDER BY a.interest_score ASC, a.published_at DESC, a.id DESC" if effective_likelihood == "not_likely" else "ORDER BY a.interest_score DESC, a.published_at DESC, a.id DESC"
 
-    if dedup:
+    effective_dedup = False if is_starred else dedup
+
+    if effective_dedup:
         subquery_where = ["a2.cluster_id = a.cluster_id"]
         subquery_joins = ""
 
@@ -166,7 +170,7 @@ async def list_articles(
     
     count_query = f"SELECT COUNT(*) as total FROM articles a LEFT JOIN feeds f ON a.feed_id = f.id {where_clause}"
     
-    if dedup:
+    if effective_dedup:
         fetch_limit = max(page * limit * 3, page * limit + 100)
         items = await db.fetch_all(query, tuple(params + [fetch_limit, 0]))
     else:
@@ -187,7 +191,7 @@ async def list_articles(
         item['interest_score'] = float(item.get('interest_score') or 0.0)
         item['likelihood_tier'] = compute_likelihood_tier(item['interest_score'], likely_threshold, high_threshold)
         
-    if dedup:
+    if effective_dedup:
         items = deduplicate_articles_sync(items)
         if not feed_id and not folder_id:
             if any(not a.get("cluster_id") for a in items):

@@ -131,11 +131,13 @@ export function ArticleList() {
   } else {
     currentUnread = stats?.unread_count;
   }
-  const unreadCount = currentUnread ?? articles.filter(a => !a.is_read).length;
+  const unreadCount = filterView === 'starred'
+    ? (stats?.starred_count ?? articles.length)
+    : (currentUnread ?? articles.filter(a => !a.is_read).length);
   const badgeText = selectedBoardId ? `${articles.length}` : formatUnreadCount(unreadCount);
 
   const visibleArticles = useMemo(() => {
-    const raw = !showRead 
+    const raw = (!showRead && filterView !== 'starred') 
       ? articles.filter(a => !a.is_read || a.id === selectedArticle?.id) 
       : articles;
 
@@ -162,7 +164,7 @@ export function ArticleList() {
       const nUrl = normalizeUrl(a.url);
       if (nUrl && seenUrls.has(nUrl)) continue;
       const nTitle = normalizeTitle(a.title || '');
-      if (nTitle && nTitle.length > 10 && seenTitles.has(nTitle)) continue;
+      if (filterView !== 'starred' && nTitle && nTitle.length > 10 && seenTitles.has(nTitle)) continue;
 
       if (a.id) seenIds.add(a.id);
       if (nUrl) seenUrls.add(nUrl);
@@ -170,7 +172,7 @@ export function ArticleList() {
       deduped.push(a);
     }
     return deduped;
-  }, [articles, showRead, selectedArticle]);
+  }, [articles, showRead, selectedArticle, filterView]);
 
   const groupedArticles = useMemo(() => {
     if (visibleArticles.length === 0) return [];

@@ -26,7 +26,8 @@ async def get_stats():
         )
     """)
     unread_count = unread_row['c'] if unread_row else 0
-    starred_count = (await db.fetch_one("SELECT COUNT(*) as c FROM articles WHERE is_starred = 1"))['c']
+    starred_row = await db.fetch_one("SELECT COUNT(*) as c FROM articles WHERE is_starred = 1")
+    starred_count = starred_row['c'] if starred_row else 0
 
     today_row = await db.fetch_one("""
         SELECT COUNT(*) as c FROM articles a 

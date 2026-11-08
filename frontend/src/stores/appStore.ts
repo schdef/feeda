@@ -13,7 +13,7 @@ import {
   removeOutboxItem
 } from '../utils/offlineDb';
 
-function deduplicateArticles(existing: Article[], incoming: Article[]): Article[] {
+function deduplicateArticles(existing: Article[], incoming: Article[], skipTitleDedup: boolean = false): Article[] {
   const seenIds = new Set<number>();
   const seenUrls = new Set<string>();
   const seenTitles = new Set<string>();
@@ -38,7 +38,7 @@ function deduplicateArticles(existing: Article[], incoming: Article[]): Article[
     const nUrl = normalizeUrl(a.url);
     if (nUrl && seenUrls.has(nUrl)) return;
     const nTitle = normalizeTitle(a.title || '');
-    if (nTitle && nTitle.length > 10 && seenTitles.has(nTitle)) return;
+    if (!skipTitleDedup && nTitle && nTitle.length > 10 && seenTitles.has(nTitle)) return;
 
     if (a.id) seenIds.add(a.id);
     if (nUrl) seenUrls.add(nUrl);
@@ -265,11 +265,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         response = await api.getForYouArticles(currentPage, 50, state.showRead ? undefined : false, state.sortMode || 'date');
       } else {
         const isFeedOrFolder = Boolean(state.selectedFeedId || state.selectedFolderId);
+        const isStarred = state.filterView === 'starred';
         const params: any = {
           page: currentPage,
           limit: 50,
           sort: state.sortMode || 'date',
-          likelihood: isFeedOrFolder ? (state.likelihoodFilter === 'likely' ? 'all' : (state.likelihoodFilter || 'all')) : state.likelihoodFilter,
+          likelihood: isStarred || isFeedOrFolder ? 'all' : state.likelihoodFilter,
         };
         if (state.selectedFeedId) params.feed_id = state.selectedFeedId;
         if (state.selectedFolderId) params.folder_id = state.selectedFolderId;
@@ -279,16 +280,21 @@ export const useAppStore = create<AppState>((set, get) => ({
             params.today = true;
             params.likelihood = 'all';
           }
-        } else if (!state.showRead) {
+        } else if (!state.showRead && !isStarred) {
           params.is_read = false;
         }
-        if (state.filterView === 'starred') params.is_starred = true;
+        if (isStarred) {
+          params.is_starred = true;
+          params.likelihood = 'all';
+          params.dedup = false;
+        }
         
         response = await api.getArticles(params);
       }
 
+      const isStarredView = state.filterView === 'starred';
       set((s) => ({
-        articles: deduplicateArticles(reset ? [] : s.articles, response.articles),
+        articles: deduplicateArticles(reset ? [] : s.articles, response.articles, isStarredView),
         hasMore: response.has_more,
         page: currentPage,
         isLoading: false,
@@ -312,13 +318,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Fallback: Query from IndexedDB
       const cached = await getArticlesOffline({
         feedId: state.selectedFeedId,
-        isRead: (state.filterView === 'unread' || state.filterView === 'today' || !state.showRead) ? false : undefined,
+        isRead: (state.filterView === 'unread' || state.filterView === 'today' || (!state.showRead && state.filterView !== 'starred')) ? false : undefined,
         isStarred: state.filterView === 'starred' ? true : undefined,
         limit: 50
       });
 
       set((s) => ({
-        articles: deduplicateArticles(reset ? [] : s.articles, cached),
+        articles: deduplicateArticles(reset ? [] : s.articles, cached, state.filterView === 'starred'),
         hasMore: false,
         isLoading: false,
         isOffline: true
