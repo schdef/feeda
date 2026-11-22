@@ -5,6 +5,7 @@ import { ArticleList } from './components/ArticleList';
 import { ArticleReader } from './components/ArticleReader';
 import { DiscoverView } from './components/DiscoverView';
 import { InterestBoardView } from './components/InterestBoardView';
+import { InterestTrendsView } from './components/InterestTrendsView';
 import { useAppStore } from './stores/appStore';
 import { useKeyboard } from './hooks/useKeyboard';
 
@@ -40,7 +41,12 @@ function App() {
   return (
     <Layout
       sidebar={<Sidebar />}
-      articleList={discoverViewOpen ? <DiscoverView /> : (filterView === 'interests' ? <InterestBoardView /> : <ArticleList />)}
+      articleList={
+        discoverViewOpen ? <DiscoverView /> : 
+        filterView === 'interests' ? <InterestBoardView /> : 
+        filterView === 'trends' ? <InterestTrendsView /> : 
+        <ArticleList />
+      }
       articleReader={<ArticleReader />}
     />
   );

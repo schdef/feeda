@@ -100,7 +100,110 @@ export interface InterestBoardResponse {
   groups: InterestGroup[];
 }
 
+export interface TopicTrendItem {
+  name: string;
+  count: number;
+  avg_dwell: number;
+  score: number;
+}
+
+export interface ArticleHeadline {
+  id: number;
+  title: string;
+  feed_title?: string;
+  url: string;
+  published_at?: string;
+  is_read: boolean;
+  interest_score: number;
+}
+
+export interface CategoryTrend {
+  name: string;
+  slug: string;
+  emoji: string;
+  article_count: number;
+  read_count: number;
+  total_dwell_seconds: number;
+  share_pct: number;
+  growth_pct: number;
+  daily_trend: number[];
+  top_topics: TopicTrendItem[];
+  top_articles?: ArticleHeadline[];
+  source_feeds?: string[];
+}
+
+export interface HotspotCategory {
+  name: string;
+  slug: string;
+  emoji: string;
+  article_count: number;
+  read_count: number;
+  total_dwell_seconds: number;
+  growth_pct: number;
+  top_topics: TopicTrendItem[];
+  top_articles?: ArticleHeadline[];
+  source_feeds?: string[];
+}
+
+export interface DailyTimelineItem {
+  date: string;
+  total_reads: number;
+  by_category: Record<string, number>;
+}
+
+export interface InterestTrendsResponse {
+  period: string;
+  start_date: string;
+  end_date: string;
+  is_demo: boolean;
+  hotspot?: HotspotCategory | null;
+  categories: CategoryTrend[];
+  daily_timeline: DailyTimelineItem[];
+  unread_catch_up?: ArticleHeadline[];
+}
+
+export interface ModelSummary {
+  total_learned_terms: number;
+  positive_terms_count: number;
+  negative_terms_count: number;
+  decay_factor: number;
+}
+
+export interface TermWeightItem {
+  term: string;
+  positive_score: number;
+  negative_score: number;
+  net_score: number;
+}
+
+export interface FeedAffinityItem {
+  feed_id: number;
+  feed_title: string;
+  articles_received: number;
+  articles_read: number;
+  affinity_score: number;
+}
+
+export interface LearningEventItem {
+  id: number;
+  article_title: string;
+  action: string;
+  dwell_time_seconds?: number | null;
+  created_at: string;
+  boosted_terms: string[];
+}
+
+export interface LearningInspectorResponse {
+  model_summary: ModelSummary;
+  top_positive_terms: TermWeightItem[];
+  top_negative_terms: TermWeightItem[];
+  feed_affinities: FeedAffinityItem[];
+  action_weights: Record<string, number>;
+  recent_events: LearningEventItem[];
+  is_demo: boolean;
+}
+
 export type ViewMode = 'magazine' | 'compact';
 export type SortMode = 'date' | 'score';
-export type FilterView = 'all' | 'unread' | 'starred' | 'for-you' | 'today' | 'interests';
+export type FilterView = 'all' | 'unread' | 'starred' | 'for-you' | 'today' | 'interests' | 'trends';
 export type LikelihoodFilter = 'likely' | 'not_likely' | 'all';

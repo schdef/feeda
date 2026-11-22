@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { isToday } from 'date-fns';
 import { api } from '../api/client';
-import type { Article, Board, Feed, FilterView, Folder, InterestGroup, LikelihoodFilter, SortMode, Stats, ViewMode } from '../types';
+import type { Article, Board, Feed, FilterView, Folder, InterestGroup, InterestTrendsResponse, LearningInspectorResponse, LikelihoodFilter, SortMode, Stats, ViewMode } from '../types';
 import {
   saveArticlesOffline,
   getArticlesOffline,
@@ -12,6 +12,7 @@ import {
   getOutboxItems,
   removeOutboxItem
 } from '../utils/offlineDb';
+import { normalizeUrl } from '../utils/url';
 
 function deduplicateArticles(existing: Article[], incoming: Article[], skipTitleDedup: boolean = false): Article[] {
   const seenIds = new Set<number>();
@@ -21,16 +22,6 @@ function deduplicateArticles(existing: Article[], incoming: Article[], skipTitle
 
   const normalizeTitle = (title: string) => {
     return title.toLowerCase().replace(/<[^>]+>/g, '').replace(/\s+[-–—|»/•]\s+.*$/, '').replace(/[^a-z0-9]/g, '').trim();
-  };
-
-  const normalizeUrl = (url?: string) => {
-    if (!url) return '';
-    try {
-      const u = new URL(url);
-      return `${u.hostname}${u.pathname}`.toLowerCase().replace(/\/+$/, '');
-    } catch {
-      return url.toLowerCase().trim();
-    }
   };
 
   const addArticle = (a: Article) => {
@@ -78,6 +69,15 @@ interface AppState {
   isOffline: boolean;
   interestGroups: InterestGroup[];
   interestBoardLoading: boolean;
+
+  // Interest Trends & Learning Insights
+  trendsPeriod: '7d' | '14d' | '30d' | 'all';
+  trendsViewMode: 'bubbles' | 'mindmap';
+  activeTrendsTab: 'radar' | 'mindmap' | 'learning' | 'visual';
+  interestTrends: InterestTrendsResponse | null;
+  learningData: LearningInspectorResponse | null;
+  trendsLoading: boolean;
+  learningLoading: boolean;
   
   selectFolderModalOpen: boolean;
   targetFeedForFolder: Feed | null;
@@ -95,9 +95,15 @@ interface AppState {
   fetchFeeds: () => Promise<void>;
   fetchBoards: () => Promise<void>;
   fetchInterestBoard: () => Promise<void>;
+  setTrendsPeriod: (period: '7d' | '14d' | '30d' | 'all') => void;
+  setTrendsViewMode: (mode: 'bubbles' | 'mindmap') => void;
+  setActiveTrendsTab: (tab: 'radar' | 'mindmap' | 'learning' | 'visual') => void;
+  fetchInterestTrends: (period?: string) => Promise<void>;
+  fetchLearningInspector: () => Promise<void>;
+  seedDemoAnalytics: () => Promise<void>;
   fetchArticles: (reset?: boolean) => Promise<void>;
   loadMoreArticles: () => Promise<void>;
-  selectArticle: (article: Article | null) => void;
+  selectArticle: (article: Article | number | null) => void;
   selectFeed: (feedId: number | null) => void;
   selectFolder: (folderId: number | null) => void;
   selectBoard: (boardId: number | null) => void;
@@ -159,7 +165,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   viewMode: (typeof localStorage !== 'undefined' && (localStorage.getItem('feeda_view_mode') as ViewMode)) || 'magazine',
   sortMode: 'date',
   filterView: 'for-you',
-  likelihoodFilter: 'likely',
+  likelihoodFilter: 'all',
   selectedFeedId: null,
   selectedFolderId: null,
   boards: [],
@@ -184,6 +190,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   
   interestGroups: [],
   interestBoardLoading: false,
+
+  trendsPeriod: '7d',
+  trendsViewMode: 'bubbles',
+  activeTrendsTab: 'radar',
+  interestTrends: null,
+  learningData: null,
+  trendsLoading: false,
+  learningLoading: false,
   
   page: 1,
   hasMore: true,
@@ -208,6 +222,53 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (error) {
       console.error('Failed to fetch interest board:', error);
       set({ interestBoardLoading: false });
+    }
+  },
+
+  setTrendsPeriod: (period) => {
+    set({ trendsPeriod: period });
+    get().fetchInterestTrends(period);
+  },
+
+  setTrendsViewMode: (mode) => set({ trendsViewMode: mode }),
+
+  setActiveTrendsTab: (tab) => set({ activeTrendsTab: tab }),
+
+  fetchInterestTrends: async (period) => {
+    const p = period || get().trendsPeriod;
+    set({ trendsLoading: true });
+    try {
+      const data = await api.getInterestTrends(p);
+      set({ interestTrends: data, trendsLoading: false });
+    } catch (error) {
+      console.error('Failed to fetch interest trends:', error);
+      set({ trendsLoading: false });
+    }
+  },
+
+  fetchLearningInspector: async () => {
+    set({ learningLoading: true });
+    try {
+      const data = await api.getLearningInspector(30);
+      set({ learningData: data, learningLoading: false });
+    } catch (error) {
+      console.error('Failed to fetch learning inspector:', error);
+      set({ learningLoading: false });
+    }
+  },
+
+  seedDemoAnalytics: async () => {
+    set({ trendsLoading: true, learningLoading: true });
+    try {
+      await api.seedDemoActivity();
+      await Promise.all([
+        get().fetchInterestTrends(get().trendsPeriod),
+        get().fetchLearningInspector()
+      ]);
+    } catch (error) {
+      console.error('Failed to seed demo activity:', error);
+    } finally {
+      set({ trendsLoading: false, learningLoading: false });
     }
   },
 
@@ -243,7 +304,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   fetchArticles: async (reset = true) => {
     const state = get();
-    if (state.filterView === 'interests') {
+    if (state.filterView === 'interests' || state.filterView === 'trends') {
       set({ isLoading: false });
       return;
     }
@@ -264,13 +325,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       } else if (state.filterView === 'for-you') {
         response = await api.getForYouArticles(currentPage, 50, state.showRead ? undefined : false, state.sortMode || 'date');
       } else {
-        const isFeedOrFolder = Boolean(state.selectedFeedId || state.selectedFolderId);
         const isStarred = state.filterView === 'starred';
         const params: any = {
           page: currentPage,
           limit: 50,
           sort: state.sortMode || 'date',
-          likelihood: isStarred || isFeedOrFolder ? 'all' : state.likelihoodFilter,
+          likelihood: isStarred ? 'all' : state.likelihoodFilter,
         };
         if (state.selectedFeedId) params.feed_id = state.selectedFeedId;
         if (state.selectedFolderId) params.folder_id = state.selectedFolderId;
@@ -305,10 +365,26 @@ export const useAppStore = create<AppState>((set, get) => ({
         set(s => ({ stats: s.stats ? { ...s.stats, for_you_unread_count: response.total } : s.stats }));
       } else if (state.filterView === 'today' && response.total !== undefined) {
         set(s => ({ stats: s.stats ? { ...s.stats, today_unread_count: response.total } : s.stats }));
-      } else if (state.filterView === 'unread' && response.total !== undefined) {
+      } else if (state.filterView === 'unread' && response.total !== undefined && state.likelihoodFilter === 'all') {
         set(s => ({ stats: s.stats ? { ...s.stats, unread_count: response.total } : s.stats }));
       } else if (state.filterView === 'starred' && response.total !== undefined) {
         set(s => ({ stats: s.stats ? { ...s.stats, starred_count: response.total } : s.stats }));
+      } else if (state.filterView === 'all' && response.total !== undefined) {
+        if (!state.selectedFeedId && !state.selectedFolderId) {
+          if (!state.showRead && state.likelihoodFilter === 'all') {
+            set(s => ({ stats: s.stats ? { ...s.stats, unread_count: response.total } : s.stats }));
+          } else if (state.showRead && state.likelihoodFilter === 'all') {
+            set(s => ({ stats: s.stats ? { ...s.stats, total_articles: response.total } : s.stats }));
+          }
+        } else if (state.selectedFeedId && !state.showRead && state.likelihoodFilter === 'all') {
+          set(s => ({
+            feeds: s.feeds.map(f => f.id === state.selectedFeedId ? { ...f, unread_count: response.total } : f)
+          }));
+        } else if (state.selectedFolderId && !state.showRead && state.likelihoodFilter === 'all') {
+          set(s => ({
+            folders: s.folders.map(fol => fol.id === state.selectedFolderId ? { ...fol, unread_count: response.total } : fol)
+          }));
+        }
       }
 
       // Cache articles in IndexedDB for offline reading
@@ -339,7 +415,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().fetchArticles(false);
   },
 
-  selectArticle: (article) => {
+  selectArticle: async (articleOrId) => {
+    let article: Article | null = null;
+    if (typeof articleOrId === 'number') {
+      const existing = get().articles.find((a) => a.id === articleOrId);
+      if (existing) {
+        article = existing;
+      } else {
+        try {
+          article = await api.getArticle(articleOrId);
+        } catch (e) {
+          console.error('Failed to fetch article by id:', e);
+        }
+      }
+    } else {
+      article = articleOrId;
+    }
+
     if (article && typeof window !== 'undefined') {
       if (window.history.state?.feedaModal !== 'article') {
         window.history.pushState({ feedaModal: 'article' }, '');
@@ -440,11 +532,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       discoverViewOpen: false,
       articles: [],
       page: 1,
-      isLoading: false
+      isLoading: false,
+      ...(view === 'all' || view === 'unread' ? { likelihoodFilter: 'all' as const } : {})
     });
     get().fetchStats();
     if (view === 'interests') {
       get().fetchInterestBoard();
+    } else if (view === 'trends') {
+      get().fetchInterestTrends();
+      get().fetchLearningInspector();
     } else {
       get().fetchArticles(true);
     }

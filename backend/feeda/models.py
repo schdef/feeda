@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 from datetime import datetime
 
 class FolderCreate(BaseModel):
@@ -167,5 +167,97 @@ class InterestGroup(BaseModel):
 
 class InterestBoardResponse(BaseModel):
     groups: List[InterestGroup]
+
+class TopicTrendItem(BaseModel):
+    name: str
+    count: int
+    avg_dwell: float
+    score: float
+
+class ArticleHeadline(BaseModel):
+    id: int
+    title: str
+    feed_title: Optional[str] = None
+    url: str
+    published_at: Optional[str] = None
+    is_read: bool = False
+    interest_score: float = 0.0
+
+class CategoryTrend(BaseModel):
+    name: str
+    slug: str
+    emoji: str
+    article_count: int
+    read_count: int
+    total_dwell_seconds: float
+    share_pct: float
+    growth_pct: float
+    daily_trend: List[int]
+    top_topics: List[TopicTrendItem]
+    top_articles: List[ArticleHeadline] = []
+    source_feeds: List[str] = []
+
+class HotspotCategory(BaseModel):
+    name: str
+    slug: str
+    emoji: str
+    article_count: int
+    read_count: int
+    total_dwell_seconds: float
+    growth_pct: float
+    top_topics: List[TopicTrendItem]
+    top_articles: List[ArticleHeadline] = []
+    source_feeds: List[str] = []
+
+class DailyTimelineItem(BaseModel):
+    date: str
+    total_reads: int
+    by_category: Dict[str, int]
+
+class InterestTrendsResponse(BaseModel):
+    period: str
+    start_date: str
+    end_date: str
+    is_demo: bool = False
+    hotspot: Optional[HotspotCategory] = None
+    categories: List[CategoryTrend]
+    daily_timeline: List[DailyTimelineItem]
+    unread_catch_up: List[ArticleHeadline] = []
+
+class ModelSummary(BaseModel):
+    total_learned_terms: int
+    positive_terms_count: int
+    negative_terms_count: int
+    decay_factor: float = 0.97
+
+class TermWeightItem(BaseModel):
+    term: str
+    positive_score: float
+    negative_score: float
+    net_score: float
+
+class FeedAffinityItem(BaseModel):
+    feed_id: int
+    feed_title: str
+    articles_received: int
+    articles_read: int
+    affinity_score: float
+
+class LearningEventItem(BaseModel):
+    id: int
+    article_title: str
+    action: str
+    dwell_time_seconds: Optional[float] = None
+    created_at: str
+    boosted_terms: List[str] = []
+
+class LearningInspectorResponse(BaseModel):
+    model_summary: ModelSummary
+    top_positive_terms: List[TermWeightItem]
+    top_negative_terms: List[TermWeightItem]
+    feed_affinities: List[FeedAffinityItem]
+    action_weights: Dict[str, float]
+    recent_events: List[LearningEventItem]
+    is_demo: bool = False
 
 

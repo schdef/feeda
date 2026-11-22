@@ -1,4 +1,4 @@
-import type { Article, ArticleBoardsResponse, ArticleListResponse, Board, Feed, Folder, InterestBoardResponse, Stats } from '../types';
+import type { Article, ArticleBoardsResponse, ArticleListResponse, Board, Feed, Folder, InterestBoardResponse, InterestTrendsResponse, LearningInspectorResponse, Stats } from '../types';
 
 const API_BASE = '/api';
 
@@ -206,4 +206,12 @@ export const api = {
   // Stats
   getStats: () => fetchApi<Stats>('/stats'),
   getHealth: () => fetchApi<{ status: string; version: string }>('/health'),
+
+  // Analytics & Learning Insights
+  getInterestTrends: (period?: string) =>
+    fetchApi<InterestTrendsResponse>(`/analytics/interest-trends?period=${encodeURIComponent(period || '7d')}`),
+  getLearningInspector: (limit?: number) =>
+    fetchApi<LearningInspectorResponse>(`/analytics/learning-inspector?limit=${limit || 30}`),
+  seedDemoActivity: () =>
+    fetchApi<{ status: string; message: string }>('/analytics/seed-demo-activity', { method: 'POST' }),
 };
