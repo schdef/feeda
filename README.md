@@ -2,6 +2,22 @@
 
 Feeda is a modern, self-hosted smart RSS reader designed for speed, clarity, and intelligent content discovery. It combines automated feed polling, full-text search, near-duplicate clustering, personal research boards, and an adaptive machine learning interest ranker that learns what you like over time.
 
+<p align="center">
+  <img src="docs/screenshots/01-magazine-view.png" alt="Feeda Magazine View" width="850">
+</p>
+
+---
+
+## 📸 Interface Showcase
+
+| View | Description | Preview |
+|:---|:---|:---:|
+| **Today Magazine View** | Main Today magazine view with folder tree and feed cards | <img src="docs/screenshots/01-magazine-view.png" alt="Feeda Magazine View" width="450"> |
+| **Reader Mode** | 3-pane reader mode with distraction-free article view and actions | <img src="docs/screenshots/02-reader-mode.png" alt="Feeda Reader Mode" width="450"> |
+| **Trends & Surge Radar** | Trends & Insights with Surge Radar, dwell-time metrics, and top velocity badges | <img src="docs/screenshots/03-trends-surge-radar.png" alt="Trends & Surge Radar" width="450"> |
+| **Interests Topic Board** | Interests Topic Board with AI-clustered columns and relevance tags | <img src="docs/screenshots/04-interests-board.png" alt="Interests Topic Board" width="450"> |
+| **Mobile Experience** | Responsive mobile experience with bottom navigation bar | <img src="docs/screenshots/05-mobile-view.png" alt="Responsive Mobile Experience" width="260"> |
+
 ---
 
 ## 🌟 Key Features
