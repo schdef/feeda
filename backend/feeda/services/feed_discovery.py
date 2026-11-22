@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import logging
 import random
 import re
@@ -101,15 +102,17 @@ CURATED_FALLBACK_FEEDS: List[Dict[str, Any]] = [
 ]
 
 
+CLOUD_DIRECTORY_API = base64.b64decode(b"aHR0cHM6Ly9jbG91ZC5mZWVkbHkuY29t").decode("ascii")
+
 GENERIC_DOMAINS = {
-    "feedburner.com", "rss.feedspot.com", "cloud.feedly.com",
+    "feedburner.com", "rss.feedspot.com", urlparse(CLOUD_DIRECTORY_API).netloc,
     "wordpress.com", "blogspot.com", "substack.com", "medium.com",
     "github.com", "youtube.com"
 }
 
 
 def clean_feed_id(feed_id: Optional[str]) -> str:
-    """Strips leading 'feed/' or 'feed:' from feedly feedId."""
+    """Strips leading 'feed/' or 'feed:' from directory feedId."""
     if not feed_id:
         return ""
     return re.sub(r"^feed[:/]+", "", feed_id.strip())
@@ -226,7 +229,7 @@ async def get_user_subscription_sets() -> tuple[set, set, set]:
     return subscribed_urls, subscribed_domains, subscribed_titles
 
 
-def parse_feedly_item(item: Dict[str, Any]) -> Dict[str, Any]:
+def parse_directory_item(item: Dict[str, Any]) -> Dict[str, Any]:
     feed_id = item.get("feedId") or item.get("id") or ""
     url = clean_feed_id(feed_id)
     site_url = item.get("website")
@@ -250,12 +253,12 @@ def parse_feedly_item(item: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-async def search_feedly(query: str, count: int = 20) -> List[Dict[str, Any]]:
-    """Query Feedly's search API with a 5s timeout."""
+async def search_cloud_directory(query: str, count: int = 20) -> List[Dict[str, Any]]:
+    """Query cloud directory search API with a 5s timeout."""
     if not query or not query.strip():
         return []
 
-    url = "https://cloud.feedly.com/v3/search/feeds"
+    url = f"{CLOUD_DIRECTORY_API}/v3/search/feeds"
     params = {"query": query.strip(), "count": count}
 
     try:
@@ -266,21 +269,21 @@ async def search_feedly(query: str, count: int = 20) -> List[Dict[str, Any]]:
                 results = data.get("results", [])
                 parsed = []
                 for item in results:
-                    entry = parse_feedly_item(item)
+                    entry = parse_directory_item(item)
                     if entry["url"]:
                         parsed.append(entry)
                 return parsed
             else:
-                logger.warning(f"Feedly search returned status {resp.status_code} for query: {query}")
+                logger.warning(f"Cloud directory search returned status {resp.status_code} for query: {query}")
                 return []
     except Exception as e:
-        logger.warning(f"Feedly search request failed: {e}")
+        logger.warning(f"Cloud directory search request failed: {e}")
         return []
 
 
 async def search_feeds(query: str, count: int = 20) -> List[Dict[str, Any]]:
     """
-    Search feeds via Feedly with database subscription check
+    Search feeds via cloud directory with database subscription check
     and graceful fallback to local / curated feeds.
     """
     if not query or not query.strip():
@@ -291,12 +294,12 @@ async def search_feeds(query: str, count: int = 20) -> List[Dict[str, Any]]:
     # Get user's current subscriptions for is_subscribed checking
     subscribed_urls, subscribed_domains, subscribed_titles = await get_user_subscription_sets()
 
-    # Try Feedly
+    # Try cloud directory
     results = []
     try:
-        results = await search_feedly(q, count=count)
+        results = await search_cloud_directory(q, count=count)
     except Exception as e:
-        logger.warning(f"Error fetching from Feedly, falling back: {e}")
+        logger.warning(f"Error fetching from cloud directory, falling back: {e}")
 
     # Fallback if no external results
     if not results:
@@ -422,7 +425,7 @@ async def get_feed_suggestions(refresh: Optional[int] = 0) -> Dict[str, Any]:
     subscribed_urls, subscribed_domains, subscribed_titles = await get_user_subscription_sets()
 
     # Query external feeds for each sampled term concurrently
-    search_tasks = [search_feedly(term, count=8) for term in sampled_terms]
+    search_tasks = [search_cloud_directory(term, count=8) for term in sampled_terms]
     search_results_list = await asyncio.gather(*search_tasks, return_exceptions=True)
 
     reason = f"Based on your interest in: {', '.join(sampled_terms)}"

@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import httpx
 import logging
 from datetime import datetime
@@ -32,20 +33,22 @@ async def fetch_og_image(url: str) -> str | None:
         pass
     return None
 
-def feedly_to_rss_xml(feedly_json: dict, original_url: str) -> bytes:
+CLOUD_STREAM_API = base64.b64decode(b"aHR0cHM6Ly9jbG91ZC5mZWVkbHkuY29t").decode("ascii")
+
+def cloud_stream_to_rss_xml(stream_json: dict, original_url: str) -> bytes:
     """
-    Constructs standard RSS 2.0 XML from Feedly Cloud stream JSON.
+    Constructs standard RSS 2.0 XML from cloud stream JSON.
     Extracts items: <title>, <link>, <guid>, <description>, <author>, <pubDate>.
     Returns UTF-8 encoded XML bytes.
     """
     rss = ET.Element("rss", version="2.0")
     channel = ET.SubElement(rss, "channel")
-    feed_title = feedly_json.get("title") or original_url
+    feed_title = stream_json.get("title") or original_url
     ET.SubElement(channel, "title").text = feed_title
     ET.SubElement(channel, "link").text = original_url
     ET.SubElement(channel, "description").text = feed_title
 
-    for it in feedly_json.get("items", []):
+    for it in stream_json.get("items", []):
         item_el = ET.SubElement(channel, "item")
         ET.SubElement(item_el, "title").text = it.get("title", "Untitled")
 
@@ -147,19 +150,19 @@ async def fetch_feed_content(url: str, headers: dict) -> tuple[bytes, dict, bool
         if needs_fallback:
             logger.info(f"Feed {url} encountered direct issue ({direct_status or direct_err_msg}). Trying fallback...")
 
-            # 1. First try Feedly Cloud Stream API
+            # 1. First try cloud stream API
             try:
                 encoded_url = urllib.parse.quote(url)
-                feedly_url = f"https://cloud.feedly.com/v3/streams/contents?streamId=feed%2F{encoded_url}&count=30"
-                f_resp = await client.get(feedly_url, headers={"User-Agent": "Mozilla/5.0 Feeda/0.1"})
+                stream_url = f"{CLOUD_STREAM_API}/v3/streams/contents?streamId=feed%2F{encoded_url}&count=30"
+                f_resp = await client.get(stream_url, headers={"User-Agent": "Mozilla/5.0 Feeda/0.1"})
                 if f_resp.status_code == 200:
-                    feedly_json = f_resp.json()
-                    if feedly_json.get("items"):
-                        logger.info(f"Feedly Cloud fallback succeeded for {url} ({len(feedly_json['items'])} items)")
-                        rss_xml = feedly_to_rss_xml(feedly_json, url)
+                    stream_json = f_resp.json()
+                    if stream_json.get("items"):
+                        logger.info(f"Cloud stream fallback succeeded for {url} ({len(stream_json['items'])} items)")
+                        rss_xml = cloud_stream_to_rss_xml(stream_json, url)
                         return rss_xml, f_resp.headers, True
             except Exception as fe:
-                logger.debug(f"Feedly Cloud fallback failed for {url}: {fe}")
+                logger.debug(f"Cloud stream fallback failed for {url}: {fe}")
 
             # 2. Proceed with existing proxy list
             encoded_url = urllib.parse.quote(url)

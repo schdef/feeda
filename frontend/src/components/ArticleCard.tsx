@@ -157,7 +157,7 @@ export function ArticleCard({ article, viewMode }: Props) {
     );
   }
 
-  // Magazine View matching Feedly Screenshot 2
+  // Magazine View layout
   const hasImage = !!article.image_url && !imageError;
   const isReadLater = filterView === 'starred';
 

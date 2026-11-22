@@ -13,14 +13,16 @@ _TRACKING_PARAMS = {
 
 def normalize_url(url: str) -> str:
     """Normalize URL by lowercasing, stripping tracking params, and standardizing scheme."""
+    if not url:
+        return ""
     url = url.strip()
     parsed = urlparse(url.lower())
     # Normalize scheme to https
     scheme = 'https'
-    # Strip tracking query parameters, keep meaningful ones (e.g., ?v= for YouTube)
+    # Strip tracking query parameters, keep meaningful ones (e.g., ?v= for YouTube, ?episodeId= for podcasts)
     if parsed.query:
         params = parse_qs(parsed.query, keep_blank_values=True)
-        filtered = {k: v for k, v in params.items() if k not in _TRACKING_PARAMS}
+        filtered = {k: sorted(v) for k, v in sorted(params.items()) if k.lower() not in _TRACKING_PARAMS}
         # Sort params for consistent hashing
         query = urlencode(filtered, doseq=True) if filtered else ''
     else:
@@ -107,6 +109,25 @@ def is_duplicate_title(title1: str, title2: str) -> bool:
 
     return False
 
+def is_same_feed(a1: dict, a2: dict) -> bool:
+    """Checks whether two articles come from the same feed publisher."""
+    f1 = a1.get('feed_id')
+    f2 = a2.get('feed_id')
+    if f1 and f2 and f1 == f2:
+        u1 = a1.get('url') or ''
+        u2 = a2.get('url') or ''
+        if u1 and u2:
+            h1 = urlparse(u1).netloc.lower()
+            h2 = urlparse(u2).netloc.lower()
+            if h1 and h2 and h1 != h2:
+                return False
+        return True
+    ft1 = a1.get('feed_title')
+    ft2 = a2.get('feed_title')
+    if ft1 and ft2 and ft1 == ft2:
+        return True
+    return False
+
 def is_duplicate_article(a1: dict, a2: dict) -> bool:
     if not a1 or not a2:
         return False
@@ -130,24 +151,44 @@ def is_duplicate_article(a1: dict, a2: dict) -> bool:
     if t1 and t2 and is_duplicate_title(t1, t2):
         return True
 
+    # Articles from the same feed with different titles, URLs, and GUIDs
+    # must never be collapsed via content token overlap, simhash, or summary heuristics.
+    if is_same_feed(a1, a2):
+        return False
+
     s1 = a1.get('content_simhash')
     s2 = a2.get('content_simhash')
     if s1 and s2 and s1 != 0 and s2 != 0:
         if hamming_distance(int(s1), int(s2)) <= 3:
             return True
 
-    # Content / summary token overlap fallback if simhash is unavailable or borderline
-    c1 = re.sub(r'<[^>]+>', ' ', a1.get('content') or a1.get('summary') or '').lower()
-    c2 = re.sub(r'<[^>]+>', ' ', a2.get('content') or a2.get('summary') or '').lower()
-    if c1 and c2:
-        from .ranker import STOP_WORDS
-        w1 = set(re.findall(r'(?u)\b\w{3,}\b', c1)) - STOP_WORDS
-        w2 = set(re.findall(r'(?u)\b\w{3,}\b', c2)) - STOP_WORDS
-        if len(w1) >= 5 and len(w2) >= 5:
-            inter = len(w1.intersection(w2))
-            min_len = min(len(w1), len(w2))
-            if (inter / min_len >= 0.75) and inter >= 5:
-                return True
+    # Title token overlap check for fallback heuristics
+    from .ranker import STOP_WORDS
+    t1_clean = clean_title(t1 or '').lower()
+    t2_clean = clean_title(t2 or '').lower()
+    t1_tokens = set(re.findall(r'(?u)\b\w{3,}\b', t1_clean)) - STOP_WORDS
+    t2_tokens = set(re.findall(r'(?u)\b\w{3,}\b', t2_clean)) - STOP_WORDS
+    has_title_overlap = bool(t1_tokens.intersection(t2_tokens))
+
+    # Content / summary token overlap fallback if simhash is unavailable or borderline.
+    # The token overlap check does not trigger when titles are completely distinct
+    # (neither duplicate title nor title token overlap) or when the overlap is caused by boilerplate.
+    if (not t1 or not t2) or has_title_overlap:
+        c1 = re.sub(r'<[^>]+>', ' ', a1.get('content') or a1.get('summary') or '').lower()
+        c2 = re.sub(r'<[^>]+>', ' ', a2.get('content') or a2.get('summary') or '').lower()
+        if c1 and c2:
+            w1 = set(re.findall(r'(?u)\b\w{3,}\b', c1)) - STOP_WORDS
+            w2 = set(re.findall(r'(?u)\b\w{3,}\b', c2)) - STOP_WORDS
+            if len(w1) >= 5 and len(w2) >= 5:
+                inter = len(w1.intersection(w2))
+                min_len = min(len(w1), len(w2))
+                union = len(w1.union(w2))
+                overlap_ratio = inter / min_len if min_len > 0 else 0
+                jaccard = inter / union if union > 0 else 0
+                # Guard against boilerplate: require high Jaccard similarity or
+                # high overlap ratio with reasonable Jaccard similarity.
+                if (jaccard >= 0.60 or (overlap_ratio >= 0.75 and jaccard >= 0.30)) and inter >= 5:
+                    return True
 
     # Multi-factor AI story signature and summary deduplication
     try:
@@ -167,7 +208,7 @@ def is_duplicate_article(a1: dict, a2: dict) -> bool:
             sig2 = generate_story_signature(a2.get('title') or '', a2.get('content') or a2.get('summary') or '')
             a2['story_signature'] = sig2
 
-        if sig1 and sig2 and are_signatures_duplicate(sig1, sig2):
+        if sig1 and sig2 and are_signatures_duplicate(sig1, sig2, a1.get('title') or '', a2.get('title') or ''):
             return True
 
         sum1 = a1.get('ai_summary') or a1.get('summary')

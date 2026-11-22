@@ -185,7 +185,7 @@ export function AddFeedModal() {
           <div className="p-4 space-y-6">
             <div>
               <h3 className="text-sm font-medium text-gray-300 mb-2">Import Subscriptions</h3>
-              <p className="text-xs text-gray-400 mb-3">Upload an OPML file exported from Feedly, Inoreader, or other RSS readers.</p>
+              <p className="text-xs text-gray-400 mb-3">Upload an OPML file exported from any RSS reader.</p>
               
               <input 
                 type="file" 

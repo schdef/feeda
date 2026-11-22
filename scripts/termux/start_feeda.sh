@@ -34,7 +34,7 @@ if command -v proot-distro >/dev/null 2>&1 && proot-distro list | grep -q "debia
     echo "Running inside proot-distro debian..."
     nohup proot-distro login debian -- bash -c "
         cd /root/feeda/backend && \
-        export FEEDA_PORT=\${FEEDA_PORT:-11666} && \
+        export FEEDA_PORT=\${FEEDA_PORT:-8000} && \
         export FEEDA_HOST=\${FEEDA_HOST:-0.0.0.0} && \
         if [ -f /root/feeda/.venv/bin/python ]; then
             exec /root/feeda/.venv/bin/python -m feeda
@@ -47,7 +47,7 @@ else
     echo "Running in native environment..."
     BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
     cd "$BASE_DIR/backend"
-    export FEEDA_PORT="${FEEDA_PORT:-11666}"
+    export FEEDA_PORT="${FEEDA_PORT:-8000}"
     export FEEDA_HOST="${FEEDA_HOST:-0.0.0.0}"
     if [ -f "$BASE_DIR/backend/.venv/bin/python" ]; then
         nohup "$BASE_DIR/backend/.venv/bin/python" -m feeda >> "$LOGFILE" 2>&1 &
@@ -63,7 +63,7 @@ echo "Feeda started with PID $PID. Logs: $LOGFILE"
 # Wait a brief moment and verify it's up
 sleep 2
 if kill -0 "$PID" 2>/dev/null; then
-    echo "Feeda is running healthy! Access UI at http://<phone-ip>:${FEEDA_PORT:-11666}"
+    echo "Feeda is running healthy! Access UI at http://<phone-ip>:${FEEDA_PORT:-8000}"
 else
     echo "Warning: Feeda process exited early. Last 10 log lines:"
     tail -n 10 "$LOGFILE"

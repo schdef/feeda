@@ -8,9 +8,9 @@ Feeda is a modern, self-hosted smart RSS reader designed for speed, clarity, and
 
 - **Adaptive ML Interest Ranking (Naive Bayes)**: Learns from your reading habits, upvotes, stars, dwell time, and read actions. Automatically surfaces high-value content in the "For You" view and filters out noise.
 - **Intelligent Near-Duplicate Detection & Clustering**: Groups similar breaking news stories across multiple RSS sources (using SimHash and title shingle similarity), showing a single clean entry with multi-source attribution.
-- **Personal Research Boards**: Save articles with markdown notes to dedicated boards (similar to Feedly Boards or Pocket collections).
+- **Personal Research Boards**: Save articles with markdown notes to dedicated research boards.
 - **OPML 2.0 Import & Export**: Seamlessly migrate to and from Feeda with full folder and category hierarchy preservation. A live backup is maintained in `backup/feeds.opml`.
-- **Keyboard-First Power User UX**: Super-fast Vim/Feedly-style keyboard navigation (`j`/`k`, `g t`, `g f`, `m`, `s`, `v`, `b`, `/`).
+- **Keyboard-First Power User UX**: Super-fast keyboard-first navigation (`j`/`k`, `g t`, `g f`, `m`, `s`, `v`, `b`, `/`).
 - **Clean Responsive Dark-First UI**: Built with React, Tailwind CSS, Lucide icons, and optimized for desktops, tablets, and mobile devices.
 - **Self-Hosted & Ultra-Lightweight**: Runs anywhere with Python 3.10+ and SQLite — including Android phones via Termux!
 
@@ -40,7 +40,7 @@ Feeda works out of the box with default settings, but you can configure ports, h
 cp .env.example .env
 ```
 Default configuration values:
-- `FEEDA_PORT=11666`
+- `FEEDA_PORT=8000`
 - `FEEDA_HOST=0.0.0.0`
 - `FEEDA_DB_PATH=feeda.db`
 - `FEEDA_POLL_INTERVAL=30`
@@ -76,7 +76,7 @@ source .venv/bin/activate
 python -m feeda
 ```
 
-Open your browser at **`http://localhost:11666`** (or your machine's local network IP).
+Open your browser at **`http://localhost:8000`** (or your machine's local network IP).
 
 ---
 
@@ -88,16 +88,16 @@ Feeda includes automated backup and full OPML 2.0 portability.
 1. **Via Web UI**:
    - Open Feeda in your browser.
    - Click the **Settings** gear icon in the sidebar.
-   - Under **OPML Import / Export**, click **Import OPML** and select `backup/feeds.opml` (or any OPML file exported from Feedly, Inoreader, NetNewsWire, etc.).
+   - Under **OPML Import / Export**, click **Import OPML** and select `backup/feeds.opml` (or any OPML file exported from any RSS reader).
 2. **Via API**:
    ```bash
-   curl -F "file=@backup/feeds.opml" http://localhost:11666/api/feeds/opml/import
+   curl -F "file=@backup/feeds.opml" http://localhost:8000/api/feeds/opml/import
    ```
 
 ### Backing Up Feeds:
 - Export your feeds anytime via the Settings UI or directly via the export endpoint:
   ```bash
-  curl -s http://localhost:11666/api/feeds/opml/export -o backup/feeds.opml
+  curl -s http://localhost:8000/api/feeds/opml/export -o backup/feeds.opml
   ```
 
 ---
@@ -167,7 +167,7 @@ flowchart TD
     subgraph Client["Frontend (React + Vite + TypeScript)"]
         UI["Tailwind CSS + Lucide UI"]
         State["Zustand Global Store"]
-        Hotkeys["Vim/Feedly Keyboard Navigation"]
+        Hotkeys["Keyboard Navigation"]
     end
 
     subgraph Server["Backend (FastAPI)"]

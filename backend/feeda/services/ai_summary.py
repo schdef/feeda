@@ -288,12 +288,65 @@ def parse_story_signature(sig: str) -> Dict[str, Any]:
 
     return res
 
-def are_signatures_duplicate(sig1: str, sig2: str) -> bool:
+_DIGEST_PATTERN = re.compile(
+    r'^(?:'
+    r'the\s+download\b|'
+    r'(?:[\w\-]+[\s\-])*(?:news\s+)?roundup\b|'
+    r'(?:[\w\-]+[\s\-])*newsletter\b|'
+    r'(?:[\w\-]+[\s\-])*(?:daily|weekly|monthly|tech)?\s*digest\b|'
+    r'tl[;\s]?dr\b|'
+    r'(?:daily|weekly|morning|evening)?\s*briefing\b|'
+    r'(?:the\s+)?week\s+in\s+review\b|'
+    r'(?:issue|edition)\s*#?\d+\b'
+    r')\s*[:\-–—»]',
+    re.IGNORECASE
+)
+
+def is_digest_title(title: str) -> bool:
+    """Checks whether a title represents a newsletter, roundup, or multi-topic digest."""
+    if not title:
+        return False
+    return bool(_DIGEST_PATTERN.search(title.strip()))
+
+def are_signatures_duplicate(
+    sig1: str,
+    sig2: str,
+    title1: Optional[str] = None,
+    title2: Optional[str] = None
+) -> bool:
     """
     Evaluates whether two story signatures describe the exact same event.
     """
     if not sig1 or not sig2:
         return False
+
+    # Check if either title represents a digest/roundup or if titles are completely distinct
+    titles_distinct = False
+    if title1 or title2:
+        t1_is_digest = is_digest_title(title1) if title1 else False
+        t2_is_digest = is_digest_title(title2) if title2 else False
+        if t1_is_digest or t2_is_digest:
+            # Multi-topic digests should never collapse with standalone news stories or different digest editions
+            if title1 and title2:
+                from .dedup import is_duplicate_title
+                if is_duplicate_title(title1, title2):
+                    return True
+            return False
+
+        if title1 and title2:
+            t1_clean = clean_html_text(title1).lower()
+            t2_clean = clean_html_text(title2).lower()
+            tok1 = set(re.findall(r'(?u)\b\w{3,}\b', t1_clean)) - STOP_WORDS
+            tok2 = set(re.findall(r'(?u)\b\w{3,}\b', t2_clean)) - STOP_WORDS
+            if tok1 and tok2:
+                shared_title = tok1.intersection(tok2)
+                union_title = tok1.union(tok2)
+                jaccard_title = len(shared_title) / len(union_title) if union_title else 0.0
+                min_title_len = min(len(tok1), len(tok2))
+                overlap_title = len(shared_title) / min_title_len if min_title_len else 0.0
+                # Completely distinct titles with low token overlap (<= 1 token and low similarity)
+                if len(shared_title) == 0 or (len(shared_title) <= 1 and jaccard_title < 0.15 and overlap_title < 0.25):
+                    titles_distinct = True
 
     s1 = parse_story_signature(sig1)
     s2 = parse_story_signature(sig2)
@@ -313,6 +366,9 @@ def are_signatures_duplicate(sig1: str, sig2: str) -> bool:
     cluster2 = s2["cluster"]
     shared_actions = set(s1["actions"]).intersection(set(s2["actions"]))
     shared_keys = set(s1["keys"]).intersection(set(s2["keys"]))
+    
+    # Exclude keys that are already counted as shared entities to avoid double-counting
+    distinct_keys = shared_keys - shared_ents
 
     # Rule A: Same anchor entity + same action cluster (e.g. Cybertruck + production_halt_reduce)
     if has_anchor and cluster1 and cluster1 == cluster2:
@@ -324,11 +380,13 @@ def are_signatures_duplicate(sig1: str, sig2: str) -> bool:
             return True
         if shared_actions:
             return True
-        if len(shared_keys) >= 1:
+        # 1 generic key is too weak when neither action nor action cluster matches,
+        # especially when titles do not match. Require >= 2 distinct keys and titles not completely distinct.
+        if len(distinct_keys) >= 2 and not titles_distinct:
             return True
 
-    # Rule C: Shared anchor + shared action or >= 2 shared keypoints
-    if has_anchor and (shared_actions or len(shared_keys) >= 2):
+    # Rule C: Shared anchor + shared action or >= 2 shared keypoints (distinct from entities)
+    if has_anchor and (shared_actions or (len(distinct_keys) >= 2 and not titles_distinct)):
         return True
 
     # Rule D: 1 shared entity + same action cluster + shared actions

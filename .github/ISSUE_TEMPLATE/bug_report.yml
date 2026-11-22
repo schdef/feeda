@@ -1,0 +1,46 @@
+name: Bug Report
+description: Create a report to help us improve Feeda
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the information below.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Also tell us what you expected to happen instead.
+      placeholder: Describe the bug here...
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction-steps
+    attributes:
+      label: Steps to reproduce
+      description: Step-by-step instructions to reproduce the issue.
+      placeholder: |
+        1. Open '...'
+        2. Click on '....'
+        3. Scroll down to '....'
+        4. See error
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment Info
+      description: Browser, OS, Python version, Feeda version or git commit hash.
+      placeholder: |
+        - OS: [e.g. Ubuntu 24.04, macOS Sonoma, Android Termux]
+        - Browser: [e.g. Chrome 124, Firefox 125, Safari]
+        - Python version: [e.g. 3.11.8]
+    validations:
+      required: false
+  - type: textarea
+    id: relevant-logs
+    attributes:
+      label: Relevant Log Output
+      description: Please copy and paste any relevant console or backend terminal logs.
+      render: shell

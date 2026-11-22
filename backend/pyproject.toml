@@ -14,3 +14,6 @@ dependencies = [
     "python-dateutil>=2.8.0",
     "beautifulsoup4>=4.12.0",
 ]
+
+[tool.setuptools.packages.find]
+include = ["feeda*"]

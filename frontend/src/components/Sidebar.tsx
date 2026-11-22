@@ -17,7 +17,8 @@ import {
   Trash2,
   AlertTriangle,
   FolderInput,
-  SlidersHorizontal
+  SlidersHorizontal,
+  TrendingUp
 } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import clsx from 'clsx';
@@ -119,7 +120,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* Navigation Links (Feedly-style Today, Read Later, For You) */}
+      {/* Navigation Links (Today, Read Later, For You) */}
       <div className="px-3 pt-3 pb-2 space-y-1">
         <div 
           className={topItemClass(filterView === 'today')} 
@@ -160,6 +161,14 @@ export function Sidebar() {
         >
           <LayoutDashboard size={19} className="text-gray-400" />
           <span className="flex-1">Interests</span>
+        </div>
+
+        <div 
+          className={topItemClass(filterView === 'trends')} 
+          onClick={() => setFilterView('trends')}
+        >
+          <TrendingUp size={19} className="text-gray-400" />
+          <span className="flex-1">Trends & Insights</span>
         </div>
       </div>
 

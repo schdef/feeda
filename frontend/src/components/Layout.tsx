@@ -76,7 +76,7 @@ export function Layout({ sidebar, articleList, articleReader }: LayoutProps) {
         {articleReader}
       </section>
 
-      {/* 5. Mobile Bottom Navigation Bar (Feedly Screenshot 2) */}
+      {/* 5. Mobile Bottom Navigation Bar */}
       {!selectedArticle && <BottomNav />}
 
       {/* 6. Modals */}

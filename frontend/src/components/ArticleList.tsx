@@ -7,6 +7,7 @@ import { formatUnreadCount } from './Sidebar';
 import { useInfiniteScroll } from '../hooks/useInfiniteScroll';
 import { useScrollMarkAsRead } from '../hooks/useScrollMarkAsRead';
 import type { Article } from '../types';
+import { normalizeUrl } from '../utils/url';
 import clsx from 'clsx';
 
 export function ArticleList() {
@@ -112,30 +113,6 @@ export function ArticleList() {
     title = currentBoard.name;
   }
 
-  // Calculate unread badge count accurately based on active view
-  let currentUnread: number | undefined;
-  if (selectedFolderId) {
-    currentUnread = folders.find(f => f.id === selectedFolderId)?.unread_count;
-  } else if (selectedFeedId) {
-    currentUnread = feeds.find(f => f.id === selectedFeedId)?.unread_count;
-  } else if (filterView === 'today') {
-    currentUnread = stats?.today_unread_count;
-  } else if (filterView === 'for-you') {
-    currentUnread = stats?.for_you_unread_count;
-  } else if (filterView === 'all') {
-    currentUnread = stats?.unread_count;
-  } else if (filterView === 'unread') {
-    currentUnread = stats?.unread_count;
-  } else if (filterView === 'starred') {
-    currentUnread = stats?.starred_count;
-  } else {
-    currentUnread = stats?.unread_count;
-  }
-  const unreadCount = filterView === 'starred'
-    ? (stats?.starred_count ?? articles.length)
-    : (currentUnread ?? articles.filter(a => !a.is_read).length);
-  const badgeText = selectedBoardId ? `${articles.length}` : formatUnreadCount(unreadCount);
-
   const visibleArticles = useMemo(() => {
     const raw = (!showRead && filterView !== 'starred') 
       ? articles.filter(a => !a.is_read || a.id === selectedArticle?.id) 
@@ -148,16 +125,6 @@ export function ArticleList() {
 
     const normalizeTitle = (t: string) => 
       t.toLowerCase().replace(/<[^>]+>/g, '').replace(/\s+[-–—|»/•]\s+.*$/, '').replace(/[^a-z0-9]/g, '').trim();
-
-    const normalizeUrl = (url?: string) => {
-      if (!url) return '';
-      try {
-        const u = new URL(url);
-        return `${u.hostname}${u.pathname}`.toLowerCase().replace(/\/+$/, '');
-      } catch {
-        return url.toLowerCase().trim();
-      }
-    };
 
     for (const a of raw) {
       if (a.id && seenIds.has(a.id)) continue;
@@ -173,6 +140,50 @@ export function ArticleList() {
     }
     return deduped;
   }, [articles, showRead, selectedArticle, filterView]);
+
+  // Calculate unread badge count accurately based on active view and likelihood filter
+  let currentUnread: number | undefined;
+  if (selectedFolderId) {
+    currentUnread = folders.find(f => f.id === selectedFolderId)?.unread_count;
+  } else if (selectedFeedId) {
+    currentUnread = feeds.find(f => f.id === selectedFeedId)?.unread_count;
+  } else if (filterView === 'today') {
+    currentUnread = stats?.today_unread_count;
+  } else if (filterView === 'for-you') {
+    currentUnread = stats?.for_you_unread_count;
+  } else if (filterView === 'all' || filterView === 'unread') {
+    currentUnread = stats?.unread_count;
+  } else if (filterView === 'starred') {
+    currentUnread = stats?.starred_count;
+  } else {
+    currentUnread = stats?.unread_count;
+  }
+
+  let badgeText = '';
+  if (selectedBoardId) {
+    badgeText = `${visibleArticles.length}`;
+  } else if (showRead) {
+    // When showRead is toggled on ("Read visible"): badge should reflect all visible articles
+    badgeText = visibleArticles.length > 0 ? `${visibleArticles.length}` : '';
+  } else if (filterView === 'starred') {
+    const starredCount = stats?.starred_count ?? visibleArticles.length;
+    badgeText = formatUnreadCount(starredCount);
+  } else {
+    const unreadVisibleCount = visibleArticles.filter(a => !a.is_read).length;
+    if (filterView === 'for-you' || likelihoodFilter === 'all') {
+      const unreadCount = currentUnread ?? unreadVisibleCount;
+      badgeText = formatUnreadCount(unreadCount);
+    } else {
+      // When likelihoodFilter !== 'all' (e.g. 'likely' or 'not_likely'):
+      // Display matching count (e.g. 4 / 39)
+      if (currentUnread !== undefined && currentUnread !== unreadVisibleCount) {
+        const totalStr = formatUnreadCount(currentUnread) || `${currentUnread}`;
+        badgeText = `${unreadVisibleCount} / ${totalStr}`;
+      } else {
+        badgeText = formatUnreadCount(unreadVisibleCount);
+      }
+    }
+  }
 
   const groupedArticles = useMemo(() => {
     if (visibleArticles.length === 0) return [];
@@ -285,14 +296,14 @@ export function ArticleList() {
 
   return (
     <div className="flex flex-col h-full bg-gray-950 text-gray-200">
-      {/* Top App Bar matching Feedly Screenshot 2 */}
+      {/* Top App Bar */}
       <header className="px-4 py-3 border-b border-gray-900 bg-gray-950/90 backdrop-blur-md sticky top-0 z-20 shrink-0">
         <div className={clsx("w-full flex items-center justify-between", !selectedArticle && "max-w-3xl mx-auto")}>
           {/* Left: Unread badge pill button that opens drawer on mobile */}
           <div className="flex items-center gap-2">
             <button 
               onClick={toggleSidebar}
-              className="flex items-center justify-center min-w-[32px] h-7 px-2 rounded-full border border-gray-800 text-xs font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-700 active:scale-95 transition-all"
+              className="flex items-center justify-center min-w-[32px] h-7 px-2.5 rounded-full border border-gray-800 text-xs font-semibold text-gray-400 hover:text-gray-200 hover:border-gray-700 active:scale-95 transition-all whitespace-nowrap"
               title="Open Feeds Drawer"
             >
               {badgeText || 'Feeds'}

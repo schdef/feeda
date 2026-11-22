@@ -3,7 +3,7 @@
 # Feeda Termux Status Script
 PIDFILE="$HOME/.feeda.pid"
 LOGFILE="$HOME/feeda.log"
-PORT="${FEEDA_PORT:-11666}"
+PORT="${FEEDA_PORT:-8000}"
 
 RUNNING=0
 if [ -f "$PIDFILE" ]; then

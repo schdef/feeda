@@ -92,7 +92,7 @@ export function BottomNav() {
         <Bookmark size={22} className={filterView === 'starred' ? "fill-emerald-500" : ""} />
       </button>
 
-      {/* 4. View Mode Toggle (Feedly-style green accent) */}
+      {/* 4. View Mode Toggle */}
       <button
         onClick={() => setViewMode(viewMode === 'magazine' ? 'compact' : 'magazine')}
         className="p-2 text-gray-400 hover:text-emerald-400 active:scale-95 transition-all flex items-center justify-center"
