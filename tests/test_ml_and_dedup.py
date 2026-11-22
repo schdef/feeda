@@ -1,17 +1,18 @@
 import asyncio
 import os
 import sys
+import pytest
 
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent if Path(__file__).resolve().parent.name == 'tests' else Path(__file__).resolve().parent
-DB_PATH = str(BASE_DIR / "backend" / "feeda.db")
 MIGRATIONS_DIR = str(BASE_DIR / "backend" / "migrations")
 
-os.environ["FEEDA_DB_PATH"] = DB_PATH
-# Ensure backend is on PYTHONPATH
+# Ensure backend and tests are on PYTHONPATH
 sys.path.insert(0, str(BASE_DIR / 'backend'))
+sys.path.insert(0, str(BASE_DIR / 'tests'))
 
+from conftest import setup_test_database, teardown_test_database, seed_test_dataset
 from feeda.services.ranker import extract_terms, update_term_weights, update_feed_affinity, score_article, rescore_articles
 from feeda.services.dedup import clean_title, word_shingles, is_duplicate_title, is_duplicate_article, find_duplicate
 from feeda.services.feed_parser import decode_html_text
@@ -20,6 +21,25 @@ from feeda.database import db
 from feeda.models import ArticleResponse, MarkAllReadRequest
 from feeda.app import create_app
 from httpx import AsyncClient, ASGITransport
+
+_ISOLATED_TEST_DB = None
+_ISOLATED_DB_PATH = None
+
+async def get_test_db():
+    global _ISOLATED_TEST_DB, _ISOLATED_DB_PATH
+    if _ISOLATED_DB_PATH is None or not os.path.exists(_ISOLATED_DB_PATH):
+        _ISOLATED_TEST_DB, _ISOLATED_DB_PATH = await setup_test_database()
+        await seed_test_dataset(_ISOLATED_TEST_DB)
+    return _ISOLATED_TEST_DB
+
+@pytest.fixture(scope="module", autouse=True)
+async def cleanup_module_db():
+    yield
+    global _ISOLATED_TEST_DB, _ISOLATED_DB_PATH
+    if _ISOLATED_TEST_DB and _ISOLATED_DB_PATH:
+        await teardown_test_database(_ISOLATED_TEST_DB, _ISOLATED_DB_PATH)
+        _ISOLATED_TEST_DB = None
+        _ISOLATED_DB_PATH = None
 
 async def test_decode_html_text():
     print("\n--- 0. Testing HTML Entity Decoding ---")
@@ -261,8 +281,7 @@ async def test_cross_day_story_memory_and_earliest_retention():
     from feeda.services.dedup import find_duplicate, update_cluster_primary, url_hash, title_shingles, compute_simhash
     from feeda.services.ai_summary import analyze_article_content
 
-    db.db_path = DB_PATH
-    await db.connect()
+    await get_test_db()
 
     feed_row = await db.fetch_one("SELECT id FROM feeds LIMIT 1")
     feed_id = feed_row["id"] if feed_row else 1
@@ -361,8 +380,7 @@ async def test_cross_day_story_memory_and_earliest_retention():
 
 async def test_likelihood_monotonicity():
     print("\n--- 2.5 Testing Likelihood Monotonicity Invariants ---")
-    db.db_path = DB_PATH
-    await db.connect()
+    await get_test_db()
     from feeda.routers.articles import compute_likelihood_tier, get_likelihood_thresholds
     likely_th, high_th, min_score, max_score = await get_likelihood_thresholds()
     print(f"Thresholds: likely={likely_th:.2f}, high={high_th:.2f}, min={min_score:.2f}, max={max_score:.2f}")
@@ -386,9 +404,7 @@ async def test_likelihood_monotonicity():
 
 async def test_backend_api():
     print("\n--- 3. Testing Backend Endpoints ---")
-    db.db_path = DB_PATH
-    await db.connect()
-    await db.run_migrations(MIGRATIONS_DIR)
+    await get_test_db()
     app = create_app()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -699,7 +715,7 @@ async def test_backend_api():
         assert sug_data1["topics"] != sug_data0["topics"] or len(sug_data1["topics"]) != len(sug_data0["topics"])
 
         # Test Personal Boards Endpoints
-        print("\n--- 6. Testing Feedly Personal Boards Endpoints ---")
+        print("\n--- 6. Testing Personal Research Boards Endpoints ---")
         # 1. Create a board
         r_create = await client.post("/api/boards", json={"name": "AI & Deep Learning", "description": "Important ML reads"})
         assert r_create.status_code == 200, r_create.text
@@ -783,8 +799,7 @@ async def test_backend_api():
 
 async def test_opml_import_export():
     print("\n--- 7. Testing OPML Import and Export ---")
-    db.db_path = DB_PATH
-    await db.connect()
+    await get_test_db()
     app = create_app()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -964,21 +979,21 @@ async def test_feed_poller_proxy_fallback():
     await db.execute("DELETE FROM articles WHERE feed_id = ?", (feed_id,))
     await db.execute("DELETE FROM feeds WHERE id = ?", (feed_id,))
 
-async def test_feedly_cloud_fallback():
-    print("\n--- 9. Testing Feedly Cloud Fallback & feedly_to_rss_xml ---")
+async def test_cloud_stream_fallback():
+    print("\n--- 9. Testing Cloud Stream Fallback & cloud_stream_to_rss_xml ---")
     import time
-    from feeda.services.feed_poller import feedly_to_rss_xml, fetch_feed_content, poll_single_feed
+    from feeda.services.feed_poller import cloud_stream_to_rss_xml, fetch_feed_content, poll_single_feed
     from feeda.services.feed_parser import parse_entries
     from unittest.mock import patch
     import httpx
 
-    # 1. Direct unit test of feedly_to_rss_xml
-    sample_feedly_json = {
-        "title": "Feedly Cloud Source",
-        "description": "Feed description from Feedly",
+    # 1. Direct unit test of cloud_stream_to_rss_xml
+    sample_stream_json = {
+        "title": "Cloud Stream Source",
+        "description": "Feed description from cloud stream",
         "items": [
             {
-                "id": "feedly-item-12345",
+                "id": "stream-item-12345",
                 "title": "Streamlined Project Management 2026",
                 "alternate": [{"href": "https://example.com/project-mgmt-guide"}],
                 "author": "Dr. Alex Taylor",
@@ -986,7 +1001,7 @@ async def test_feedly_cloud_fallback():
                 "summary": {"content": "<p>A comprehensive overview of agile strategies.</p>"}
             },
             {
-                "originId": "feedly-item-67890",
+                "originId": "stream-item-67890",
                 "title": "Secondary Post",
                 "alternate": [{"href": "https://example.com/secondary"}],
                 "crawled": 1700003600000,
@@ -995,40 +1010,40 @@ async def test_feedly_cloud_fallback():
         ]
     }
 
-    original_url = "https://feedly-test.example.com/rss.xml"
-    rss_bytes = feedly_to_rss_xml(sample_feedly_json, original_url)
+    original_url = "https://cloud-stream-test.example.com/rss.xml"
+    rss_bytes = cloud_stream_to_rss_xml(sample_stream_json, original_url)
     assert isinstance(rss_bytes, bytes)
     assert b"Streamlined Project Management 2026" in rss_bytes
     assert b"Dr. Alex Taylor" in rss_bytes
-    assert b"feedly-item-12345" in rss_bytes
+    assert b"stream-item-12345" in rss_bytes
     assert b"https://example.com/project-mgmt-guide" in rss_bytes
 
     entries = parse_entries(rss_bytes)
     assert len(entries) == 2
     assert entries[0]["title"] == "Streamlined Project Management 2026"
     assert entries[0]["url"] == "https://example.com/project-mgmt-guide"
-    assert entries[0]["guid"] == "feedly-item-12345"
+    assert entries[0]["guid"] == "stream-item-12345"
     assert entries[0]["author"] == "Dr. Alex Taylor"
     assert entries[0]["published_at"] == "2023-11-14T22:13:20+00:00"
     assert "comprehensive overview" in entries[0]["summary"]
-    print("feedly_to_rss_xml unit test PASSED!")
+    print("cloud_stream_to_rss_xml unit test PASSED!")
 
-    # 2. Integration test: mock direct request failure (Cloudflare 403 Turnstile) + Feedly Cloud success
-    dummy_feedly_url = f"https://cloudflare-cf.example.com/feed_{int(time.time()*1000)}.xml"
+    # 2. Integration test: mock direct request failure (Cloudflare 403 Turnstile) + cloud stream success
+    dummy_stream_url = f"https://cloudflare-cf.example.com/feed_{int(time.time()*1000)}.xml"
     f_id = await db.execute("""
         INSERT INTO feeds (url, title, poll_interval_minutes, error_count, last_error)
-        VALUES (?, 'CF Protected Feedly Stream', 60, 5, 'Cloudflare 403 Turnstile')
-    """, (dummy_feedly_url,))
+        VALUES (?, 'CF Protected Cloud Stream', 60, 5, 'Cloudflare 403 Turnstile')
+    """, (dummy_stream_url,))
 
     orig_get = httpx.AsyncClient.get
 
-    async def mock_feedly_get(self, url, *args, **kwargs):
+    async def mock_stream_get(self, url, *args, **kwargs):
         url_str = str(url)
-        if "cloud.feedly.com" in url_str:
+        if "/v3/streams/contents" in url_str:
             return httpx.Response(
                 status_code=200,
                 headers={"Content-Type": "application/json"},
-                json=sample_feedly_json,
+                json=sample_stream_json,
                 request=httpx.Request("GET", url_str)
             )
         elif "cloudflare-cf.example.com" in url_str:
@@ -1040,11 +1055,11 @@ async def test_feedly_cloud_fallback():
             )
         return await orig_get(self, url, *args, **kwargs)
 
-    with patch.object(httpx.AsyncClient, "get", mock_feedly_get):
-        content, headers, used_fallback = await fetch_feed_content(dummy_feedly_url, {})
+    with patch.object(httpx.AsyncClient, "get", mock_stream_get):
+        content, headers, used_fallback = await fetch_feed_content(dummy_stream_url, {})
         assert used_fallback is True
         assert b"Streamlined Project Management 2026" in content
-        print("fetch_feed_content Feedly Cloud fallback PASSED!")
+        print("fetch_feed_content Cloud stream fallback PASSED!")
 
         await poll_single_feed(f_id)
 
@@ -1059,7 +1074,7 @@ async def test_feedly_cloud_fallback():
         assert art["title"] == "Streamlined Project Management 2026"
         assert art["author"] == "Dr. Alex Taylor"
         assert art["published_at"] == "2023-11-14T22:13:20+00:00"
-        print("poll_single_feed Feedly Cloud integration PASSED!")
+        print("poll_single_feed Cloud stream integration PASSED!")
 
     await db.execute("DELETE FROM articles WHERE feed_id = ?", (f_id,))
     await db.execute("DELETE FROM feeds WHERE id = ?", (f_id,))
@@ -1074,8 +1089,11 @@ async def main():
     await test_backend_api()
     await test_opml_import_export()
     await test_feed_poller_proxy_fallback()
-    await test_feedly_cloud_fallback()
+    await test_cloud_stream_fallback()
     print("\nALL TESTS PASSED SUCCESSFULLY!")
+    global _ISOLATED_TEST_DB, _ISOLATED_DB_PATH
+    if _ISOLATED_TEST_DB and _ISOLATED_DB_PATH:
+        await teardown_test_database(_ISOLATED_TEST_DB, _ISOLATED_DB_PATH)
     import os
     os._exit(0)
 

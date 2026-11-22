@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sys
+import tempfile
 from pathlib import Path
 import unittest
 from unittest.mock import patch, AsyncMock
@@ -16,9 +17,24 @@ from feeda.services.feed_poller import poll_single_feed
 class TestFolderRefreshEndpoint(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        os.environ["FEEDA_DB_PATH"] = "backend/feeda.db"
+        cls.temp_db_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        cls.db_path = cls.temp_db_file.name
+        cls.temp_db_file.close()
+
+        os.environ["FEEDA_DB_PATH"] = cls.db_path
+        db.db_path = cls.db_path
+        asyncio.run(db.connect())
+        migrations_dir = str(BASE_DIR / "backend" / "migrations")
+        asyncio.run(db.run_migrations(migrations_dir))
+
         with patch("feeda.app.feed_poller_task", new_callable=AsyncMock):
             cls.app = create_app()
+
+    @classmethod
+    def tearDownClass(cls):
+        asyncio.run(db.close())
+        if os.path.exists(cls.db_path):
+            os.remove(cls.db_path)
 
     def setUp(self):
         async def clean():
@@ -63,8 +79,20 @@ class TestFolderRefreshEndpoint(unittest.TestCase):
 
 class TestFeedPollerHardening(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        os.environ["FEEDA_DB_PATH"] = "backend/feeda.db"
+        self.temp_db_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.db_path = self.temp_db_file.name
+        self.temp_db_file.close()
+
+        os.environ["FEEDA_DB_PATH"] = self.db_path
+        db.db_path = self.db_path
         await db.connect()
+        migrations_dir = str(BASE_DIR / "backend" / "migrations")
+        await db.run_migrations(migrations_dir)
+
+    async def asyncTearDown(self):
+        await db.close()
+        if os.path.exists(self.db_path):
+            os.remove(self.db_path)
 
     async def test_feed_poller_unique_constraint_hardening(self):
         folder_id = await db.execute("INSERT INTO folders (name, position) VALUES (?, ?)", ("Poller Test Hardening Folder", 8899))

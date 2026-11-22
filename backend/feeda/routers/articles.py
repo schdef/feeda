@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Query
 from typing import List, Optional, Union
 import asyncio
+import re
 from ..models import ArticleResponse, ArticleListResponse, SearchResponse, ArticleBoardsResponse, InterestBoardResponse
 from ..database import db
 from ..services.llm_dedup import deduplicate_articles_sync, cluster_unclustered_articles_background
@@ -319,8 +320,25 @@ async def for_you(
         "has_more": (page * limit) < total
     }
 
+def sanitize_fts_query(q: str) -> str:
+    """
+    Sanitize search queries for SQLite FTS MATCH so special characters
+    ('"', ':', '*', '+', 'AND', 'OR', unmatched quotes, etc.) do not trigger syntax errors.
+    """
+    if not q or not q.strip():
+        return ""
+    cleaned = re.sub(r'[\":*+^(){}\[\]~]', ' ', q)
+    tokens = cleaned.strip().split()
+    if not tokens:
+        return ""
+    return " ".join(f'"{token}"*' for token in tokens)
+
 @router.get("/search", response_model=SearchResponse)
 async def search_articles(q: str, limit: int = 50):
+    sanitized_q = sanitize_fts_query(q)
+    if not sanitized_q:
+        return {"articles": [], "total": 0}
+
     likely_threshold, high_threshold, _, _ = await get_likelihood_thresholds()
 
     query = """
@@ -334,7 +352,7 @@ async def search_articles(q: str, limit: int = 50):
         ORDER BY rank
         LIMIT ?
     """
-    items = await db.fetch_all(query, (q, limit))
+    items = await db.fetch_all(query, (sanitized_q, limit))
     for item in items:
         item['is_read'] = bool(item['is_read'])
         item['is_starred'] = bool(item['is_starred'])

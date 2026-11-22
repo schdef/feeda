@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 BASE_DIR = Path(__file__).resolve().parent.parent if Path(__file__).resolve().parent.name == 'tests' else Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR / 'backend'))
 
-from feeda.database import Database
+from feeda.database import Database, db
 from feeda.models import InterestBoardResponse, ArticleResponse
 from feeda.services.interest_grouper import (
     build_interest_board,
@@ -271,8 +271,37 @@ class TestInterestBoard(unittest.IsolatedAsyncioTestCase):
 class TestInterestBoardEndpoint(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        os.environ["FEEDA_DB_PATH"] = "backend/feeda.db"
+        cls.temp_db_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        cls.db_path = cls.temp_db_file.name
+        cls.temp_db_file.close()
+
+        os.environ["FEEDA_DB_PATH"] = cls.db_path
+        db.db_path = cls.db_path
+        asyncio.run(db.connect())
+        migrations_dir = str(BASE_DIR / "backend" / "migrations")
+        asyncio.run(db.run_migrations(migrations_dir))
+
+        # Seed sample feed and articles so groups are formed
+        async def seed():
+            feed_id = await db.execute("INSERT INTO feeds (title, url) VALUES ('Tech Feed', 'https://tech.example.com/rss')")
+            # Insert articles with topics matching catalog keywords
+            await db.execute("""
+                INSERT INTO articles (feed_id, title, url, url_hash, summary, interest_score, is_read, published_at)
+                VALUES 
+                (?, 'AI Breakthrough with Deep Learning LLM', 'http://example.com/ai1', 'h_ai1', 'Neural networks and LLMs', 15.0, 0, datetime('now')),
+                (?, 'Cybersecurity zero-day vulnerability patched in Linux', 'http://example.com/sec1', 'h_sec1', 'Security malware patch', 12.0, 0, datetime('now')),
+                (?, 'Electric vehicle battery breakthrough in solid state', 'http://example.com/ev1', 'h_ev1', 'EV mobility lithium', 8.0, 0, datetime('now')),
+                (?, 'Biotech genomics breakthrough in CRISPR therapy', 'http://example.com/bio1', 'h_bio1', 'Genetics gene editing', 6.0, 0, datetime('now'))
+            """, (feed_id, feed_id, feed_id, feed_id))
+        asyncio.run(seed())
+
         cls.app = create_app()
+
+    @classmethod
+    def tearDownClass(cls):
+        asyncio.run(db.close())
+        if os.path.exists(cls.db_path):
+            os.remove(cls.db_path)
 
     def test_interest_board_api(self):
         with TestClient(self.app) as client:
