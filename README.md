@@ -178,6 +178,13 @@ Press `?` anywhere in the app to display the full shortcuts cheat sheet.
 
 ## 🏗️ Architecture Overview
 
+<p align="center">
+  <img src="docs/architecture.png" alt="Feeda System Architecture" width="850">
+</p>
+
+<details>
+<summary>View Mermaid Source Diagram</summary>
+
 ```mermaid
 flowchart TD
     subgraph Client["Frontend (React + Vite + TypeScript)"]
@@ -208,6 +215,8 @@ flowchart TD
     API -->|Queries & Updates| DB
     API -->|Imports & Exports| OPML
 ```
+
+</details>
 
 ### Component Details:
 - **Backend**:
