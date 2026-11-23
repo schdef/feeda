@@ -1,5 +1,7 @@
 # Feeda 📰✨
 
+> **TL;DR:** Self-hosted smart RSS reader with adaptive ML interest ranking, near-duplicate clustering, Trends Surge Radar, and full-text search. Built with FastAPI, SQLite, and React.
+
 Feeda is a modern, self-hosted smart RSS reader designed for speed, clarity, and intelligent content discovery. It combines automated feed polling, full-text search, near-duplicate clustering, personal research boards, and an adaptive machine learning interest ranker that learns what you like over time.
 
 <p align="center">
