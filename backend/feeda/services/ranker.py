@@ -1,7 +1,12 @@
+import asyncio
 import re
 import math
 from datetime import datetime
 from dateutil import parser
+
+_rescore_in_progress = False
+_rescore_requested = False
+_rescore_loop = None
 
 STOP_WORDS = {
     # English functional / filler words
@@ -29,11 +34,21 @@ STOP_WORDS = {
     'ihren', 'ihres', 'wir', 'uns', 'unser', 'unsere', 'euch', 'euer', 'eure'
 }
 
-async def prune_stop_words_from_term_weights(db):
+async def prune_stop_words_from_term_weights(db) -> int:
     if not STOP_WORDS:
-        return
+        return 0
     placeholders = ",".join("?" for _ in STOP_WORDS)
-    await db.execute(f"DELETE FROM term_weights WHERE term IN ({placeholders})", tuple(STOP_WORDS))
+    row = await db.fetch_one(
+        f"SELECT COUNT(*) as c FROM term_weights WHERE term IN ({placeholders})",
+        tuple(STOP_WORDS),
+    )
+    count = row["c"] if row and row.get("c") else 0
+    if count > 0:
+        await db.execute(
+            f"DELETE FROM term_weights WHERE term IN ({placeholders})",
+            tuple(STOP_WORDS),
+        )
+    return count
 
 def extract_terms(text: str) -> list:
     if not text:
@@ -102,29 +117,65 @@ async def update_term_weights(article_id: int, action: str, db):
     if weight == 0.0:
         return
 
-    terms = set(extract_terms(article['title'] + " " + (article.get('summary') or "") + " " + (article.get('content') or "")))
-    for term in terms:
-        if weight > 0:
-            await db.execute("""
-                INSERT INTO term_weights (term, positive_score) VALUES (?, ?)
-                ON CONFLICT(term) DO UPDATE SET positive_score = positive_score + ?, updated_at = CURRENT_TIMESTAMP
-            """, (term, weight, weight))
-        else:
-            w = abs(weight)
-            await db.execute("""
-                INSERT INTO term_weights (term, negative_score) VALUES (?, ?)
-                ON CONFLICT(term) DO UPDATE SET negative_score = negative_score + ?, updated_at = CURRENT_TIMESTAMP
-            """, (term, w, w))
+    terms = set(extract_terms((article.get('title') or "") + " " + (article.get('summary') or "") + " " + (article.get('content') or "")))
+    if not terms:
+        return
 
-async def score_article(article: dict, db) -> float:
-    terms = set(extract_terms(article['title'] + " " + (article.get('summary') or "") + " " + (article.get('content') or "")))
+    if weight > 0:
+        query = """
+            INSERT INTO term_weights (term, positive_score) VALUES (?, ?)
+            ON CONFLICT(term) DO UPDATE SET positive_score = positive_score + ?, updated_at = CURRENT_TIMESTAMP
+        """
+        params_list = [(term, weight, weight) for term in terms]
+    else:
+        w = abs(weight)
+        query = """
+            INSERT INTO term_weights (term, negative_score) VALUES (?, ?)
+            ON CONFLICT(term) DO UPDATE SET negative_score = negative_score + ?, updated_at = CURRENT_TIMESTAMP
+        """
+        params_list = [(term, w, w) for term in terms]
+
+    if hasattr(db, "execute_many"):
+        await db.execute_many(query, params_list)
+    elif getattr(db, "_conn", None) is not None:
+        await db._conn.executemany(query, params_list)
+        await db._conn.commit()
+    else:
+        for params in params_list:
+            await db.execute(query, params)
+
+
+async def score_article(
+    article: dict,
+    db,
+    term_weights_map: dict | None = None,
+    feed_affinity_map: dict | None = None,
+    starred_counts_map: dict | None = None,
+) -> float:
+    terms = set(extract_terms((article.get('title') or "") + " " + (article.get('summary') or "") + " " + (article.get('content') or "")))
     s_bayes = 0.0
-    for term in terms:
-        row = await db.fetch_one("SELECT positive_score, negative_score FROM term_weights WHERE term = ?", (term,))
-        if row:
-            s_bayes += (float(row['positive_score']) - float(row['negative_score']))
-
     if terms:
+        if term_weights_map is not None:
+            for term in terms:
+                tw = term_weights_map.get(term)
+                if tw is not None:
+                    if isinstance(tw, dict):
+                        s_bayes += float(tw['positive_score']) - float(tw['negative_score'])
+                    else:
+                        s_bayes += float(tw[0]) - float(tw[1])
+        else:
+            terms_list = list(terms)
+            chunk_size = 500
+            for start in range(0, len(terms_list), chunk_size):
+                chunk = terms_list[start:start + chunk_size]
+                placeholders = ",".join("?" for _ in chunk)
+                rows = await db.fetch_all(
+                    f"SELECT term, positive_score, negative_score FROM term_weights WHERE term IN ({placeholders})",
+                    tuple(chunk),
+                )
+                for row in rows:
+                    s_bayes += float(row['positive_score']) - float(row['negative_score'])
+
         # Log-scaled length damping: rewards rich content without letting long text overwhelm concise news
         norm_factor = math.log(10 + len(terms)) / math.log(25)  # ~1.0 around 15 terms
         s_bayes = s_bayes / max(0.5, norm_factor)
@@ -150,31 +201,111 @@ async def score_article(article: dict, db) -> float:
     s_starred_boost = 0.0
     feed_id = article.get('feed_id')
     if feed_id:
-        feed_row = await db.fetch_one("SELECT affinity_score FROM feed_affinity WHERE feed_id = ?", (feed_id,))
-        if feed_row and feed_row['affinity_score'] is not None:
-            s_feed = float(feed_row['affinity_score'])
+        if feed_affinity_map is not None:
+            affinity_val = feed_affinity_map.get(feed_id)
+            if affinity_val is not None:
+                s_feed = float(affinity_val)
+        else:
+            feed_row = await db.fetch_one("SELECT affinity_score FROM feed_affinity WHERE feed_id = ?", (feed_id,))
+            if feed_row and feed_row['affinity_score'] is not None:
+                s_feed = float(feed_row['affinity_score'])
 
-        starred_in_feed = await db.fetch_one("SELECT COUNT(*) as c FROM articles WHERE feed_id = ? AND is_starred = 1", (feed_id,))
-        if starred_in_feed and starred_in_feed['c'] > 0:
-            s_starred_boost = min(1.0, starred_in_feed['c'] * 0.25)
+        if starred_counts_map is not None:
+            starred_cnt = starred_counts_map.get(feed_id, 0)
+            if starred_cnt > 0:
+                s_starred_boost = min(1.0, starred_cnt * 0.25)
+        else:
+            starred_in_feed = await db.fetch_one("SELECT COUNT(*) as c FROM articles WHERE feed_id = ? AND is_starred = 1", (feed_id,))
+            if starred_in_feed and starred_in_feed['c'] > 0:
+                s_starred_boost = min(1.0, starred_in_feed['c'] * 0.25)
 
     score = 0.35 * s_bayes + 0.2 * s_feed + 0.25 * s_freshness + 0.1 * s_explicit + 0.1 * s_starred_boost
     return round(score, 4)
 
-async def rescore_articles(db):
+
+async def _run_rescore_once(db):
     await db.execute("""
         UPDATE articles 
         SET interest_score = 0.0 
         WHERE datetime(published_at) < datetime('now', '-6 months') AND interest_score != 0.0
     """)
+
+    tw_rows = await db.fetch_all("SELECT term, positive_score, negative_score FROM term_weights")
+    term_weights_map = {
+        r["term"]: (float(r["positive_score"]), float(r["negative_score"]))
+        for r in tw_rows
+    }
+
+    fa_rows = await db.fetch_all("SELECT feed_id, affinity_score FROM feed_affinity")
+    feed_affinity_map = {
+        r["feed_id"]: float(r["affinity_score"])
+        for r in fa_rows if r.get("affinity_score") is not None
+    }
+
+    sc_rows = await db.fetch_all("SELECT feed_id, COUNT(*) as c FROM articles WHERE is_starred = 1 GROUP BY feed_id")
+    starred_counts_map = {
+        r["feed_id"]: int(r["c"])
+        for r in sc_rows if r.get("feed_id") is not None
+    }
+
     articles = await db.fetch_all("""
         SELECT id, feed_id, title, summary, content, published_at, user_vote, is_starred 
         FROM articles 
         WHERE is_read = 0 AND (published_at IS NULL OR datetime(published_at) >= datetime('now', '-6 months'))
     """)
-    for a in articles:
-        score = await score_article(a, db)
-        await db.execute("UPDATE articles SET interest_score = ? WHERE id = ?", (score, a['id']))
+
+    updates: list[tuple[float, int]] = []
+    for i, a in enumerate(articles):
+        score = await score_article(
+            a,
+            db,
+            term_weights_map=term_weights_map,
+            feed_affinity_map=feed_affinity_map,
+            starred_counts_map=starred_counts_map,
+        )
+        updates.append((score, a['id']))
+        if (i + 1) % 200 == 0:
+            await asyncio.sleep(0)
+
+    batch_size = 500
+    update_query = "UPDATE articles SET interest_score = ? WHERE id = ?"
+    for start in range(0, len(updates), batch_size):
+        batch = updates[start:start + batch_size]
+        if hasattr(db, "execute_many"):
+            await db.execute_many(update_query, batch)
+        elif getattr(db, "_conn", None) is not None:
+            await db._conn.executemany(update_query, batch)
+            await db._conn.commit()
+        else:
+            for params in batch:
+                await db.execute(update_query, params)
+        if start + batch_size < len(updates):
+            await asyncio.sleep(0)
+
+
+async def rescore_articles(db):
+    global _rescore_in_progress, _rescore_requested, _rescore_loop
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        current_loop = None
+
+    if _rescore_in_progress and _rescore_loop is current_loop:
+        _rescore_requested = True
+        return
+
+    _rescore_in_progress = True
+    _rescore_loop = current_loop
+    try:
+        while True:
+            _rescore_requested = False
+            await _run_rescore_once(db)
+            if not _rescore_requested:
+                break
+    finally:
+        _rescore_in_progress = False
+        _rescore_requested = False
+        _rescore_loop = None
 
 async def apply_decay(db):
     await db.execute("UPDATE term_weights SET positive_score = positive_score * 0.985, negative_score = negative_score * 0.985")

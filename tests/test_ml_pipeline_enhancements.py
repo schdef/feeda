@@ -1,9 +1,11 @@
+import asyncio
 import os
 import sys
 import tempfile
 import unittest
 import math
 from pathlib import Path
+from unittest.mock import patch, AsyncMock
 from httpx import AsyncClient, ASGITransport
 
 BASE_DIR = Path(__file__).resolve().parent.parent if Path(__file__).resolve().parent.name == "tests" else Path(__file__).resolve().parent
@@ -11,14 +13,21 @@ sys.path.insert(0, str(BASE_DIR / "backend"))
 
 from feeda.database import Database
 import feeda.database
+import feeda.services.ranker as ranker_module
 from feeda.services.ranker import (
     STOP_WORDS,
     extract_terms,
     score_article,
+    rescore_articles,
+    update_term_weights,
     apply_decay,
     prune_stop_words_from_term_weights,
 )
-from feeda.services.interest_grouper import classify_article_category
+from feeda.services.interest_grouper import (
+    classify_article_category,
+    backfill_article_categories,
+)
+from feeda.services import feed_poller
 from feeda.routers.articles import get_likelihood_thresholds
 from feeda.app import create_app
 
@@ -298,3 +307,200 @@ class TestMLPipelineEnhancements(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(uncat_data["category"], "Electric Vehicles & Mobility")
             self.assertEqual(uncat_data["category_emoji"], "🚗")
             self.assertEqual(uncat_data["category_slug"], "electric-vehicles-mobility")
+
+    async def test_database_execute_many_and_write_lock(self):
+        # Empty params_list should be a safe no-op
+        await self.db.execute_many("INSERT INTO term_weights (term, positive_score) VALUES (?, ?)", [])
+
+        # Batch insert via execute_many
+        rows_to_insert = [(f"batchterm{i}", float(i + 1)) for i in range(25)]
+        await self.db.execute_many(
+            "INSERT INTO term_weights (term, positive_score) VALUES (?, ?)",
+            rows_to_insert,
+        )
+        stored = await self.db.fetch_all("SELECT term, positive_score FROM term_weights WHERE term LIKE 'batchterm%'")
+        self.assertEqual(len(stored), 25)
+
+        # Simulate a Database instance created via __new__ with _conn swapped directly
+        bypassed_db = Database.__new__(Database)
+        bypassed_db._conn = self.db._conn
+        await bypassed_db.execute_many(
+            "UPDATE term_weights SET positive_score = positive_score + ? WHERE term = ?",
+            [(10.0, "batchterm0"), (10.0, "batchterm1")],
+        )
+        r0 = await self.db.fetch_one("SELECT positive_score FROM term_weights WHERE term = 'batchterm0'")
+        self.assertAlmostEqual(r0["positive_score"], 11.0, places=3)
+
+        # Concurrent writes serialized cleanly via _write_lock
+        await asyncio.gather(*(
+            self.db.execute(
+                "INSERT INTO term_weights (term, positive_score) VALUES (?, ?) ON CONFLICT(term) DO UPDATE SET positive_score = positive_score + ?",
+                ("concurrent_term", 1.0, 1.0),
+            )
+            for _ in range(15)
+        ))
+        rc = await self.db.fetch_one("SELECT positive_score FROM term_weights WHERE term = 'concurrent_term'")
+        self.assertAlmostEqual(rc["positive_score"], 15.0, places=3)
+
+    async def test_batched_scoring_rescore_and_coalescing(self):
+        feed_id = await self.db.execute("INSERT INTO feeds (title, url) VALUES ('Perf Feed', 'http://perf.example.com')")
+
+        # Seed 30 terms (>1 term, verifies batched IN (...) query instead of 30 sequential SELECTs)
+        terms = [f"perfterm{chr(97 + i // 26)}{chr(97 + i % 26)}" for i in range(30)]
+        await self.db.execute_many(
+            "INSERT INTO term_weights (term, positive_score, negative_score) VALUES (?, 3.0, 1.0)",
+            [(t,) for t in terms],
+        )
+
+        # Insert 650 unread articles (> 500 batch size) + 1 starred article
+        article_params = [
+            (feed_id, f"Title {' '.join(terms[:10])} {i}", f"http://perf.example.com/{i}", f"perf_hash_{i}", 0.0, 0, 1 if i == 0 else 0)
+            for i in range(650)
+        ]
+        await self.db.execute_many(
+            "INSERT INTO articles (feed_id, title, url, url_hash, interest_score, is_read, is_starred) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            article_params,
+        )
+
+        # Spy on fetch_one/fetch_all for score_article fallback path
+        fetch_one_calls = 0
+        fetch_all_calls = 0
+        orig_fetch_one = self.db.fetch_one
+        orig_fetch_all = self.db.fetch_all
+
+        async def spy_fetch_one(q, p=()):
+            nonlocal fetch_one_calls
+            fetch_one_calls += 1
+            return await orig_fetch_one(q, p)
+
+        async def spy_fetch_all(q, p=()):
+            nonlocal fetch_all_calls
+            fetch_all_calls += 1
+            return await orig_fetch_all(q, p)
+
+        sample_article = {
+            "title": " ".join(terms),
+            "summary": "",
+            "content": "",
+            "feed_id": feed_id,
+            "published_at": None,
+            "is_starred": False,
+            "user_vote": 0,
+        }
+        with patch.object(self.db, "fetch_one", side_effect=spy_fetch_one), \
+             patch.object(self.db, "fetch_all", side_effect=spy_fetch_all):
+            fallback_score = await score_article(sample_article, self.db)
+
+        # 1 batched fetch_all for all 30 term_weights + 2 fetch_one (feed_affinity, starred count)
+        self.assertEqual(fetch_all_calls, 1)
+        self.assertEqual(fetch_one_calls, 2)
+
+        # Preloaded maps must match fallback score with 0 DB calls
+        preloaded_score = await score_article(
+            sample_article,
+            self.db,
+            term_weights_map={t: (3.0, 1.0) for t in terms},
+            feed_affinity_map={},
+            starred_counts_map={feed_id: 1},
+        )
+        self.assertAlmostEqual(fallback_score, preloaded_score, places=4)
+
+        # Test batched update_term_weights uses execute_many once
+        art_row = await self.db.fetch_one("SELECT id FROM articles WHERE feed_id = ? LIMIT 1", (feed_id,))
+        with patch.object(self.db, "execute_many", wraps=self.db.execute_many) as spy_exec_many:
+            await update_term_weights(art_row["id"], "star", self.db)
+            self.assertEqual(spy_exec_many.call_count, 1)
+
+        # Test rescore_articles updates all 650 articles across >1 batch of 500
+        with patch.object(self.db, "execute_many", wraps=self.db.execute_many) as spy_rescore_many:
+            await rescore_articles(self.db)
+            self.assertEqual(spy_rescore_many.call_count, 2)  # 500 + 150
+
+        rescored = await self.db.fetch_all("SELECT interest_score FROM articles WHERE feed_id = ?", (feed_id,))
+        self.assertEqual(len(rescored), 650)
+        self.assertTrue(all(r["interest_score"] > 0.0 for r in rescored))
+
+        # Test coalescing: 5 concurrent rescore_articles calls should run _run_rescore_once at most 2 times
+        run_count = 0
+        orig_run_once = ranker_module._run_rescore_once
+
+        async def slow_run_once(database):
+            nonlocal run_count
+            run_count += 1
+            await asyncio.sleep(0.02)
+            return await orig_run_once(database)
+
+        with patch.object(ranker_module, "_run_rescore_once", side_effect=slow_run_once):
+            await asyncio.gather(*(rescore_articles(self.db) for _ in range(5)))
+
+        self.assertEqual(run_count, 2)
+
+    async def test_backfill_article_categories_batched(self):
+        feed_id = await self.db.execute("INSERT INTO feeds (title, url) VALUES ('Backfill Feed', 'http://backfill.example.com')")
+
+        # Insert 1,100 uncategorized articles (> 2 batches of 500)
+        rows = []
+        for i in range(1100):
+            if i % 3 == 0:
+                title = f"OpenAI launches new LLM benchmark {i}"
+            elif i % 3 == 1:
+                title = f"Tesla Cybertruck battery update {i}"
+            else:
+                title = f"Random miscellaneous note {i}"
+            rows.append((feed_id, title, f"http://backfill.example.com/{i}", f"bf_hash_{i}", 0))
+
+        await self.db.execute_many(
+            "INSERT INTO articles (feed_id, title, url, url_hash, is_read) VALUES (?, ?, ?, ?, ?)",
+            rows,
+        )
+
+        # Cap via limit=10
+        await backfill_article_categories(self.db, limit=10)
+        remaining_after_limit = await self.db.fetch_one(
+            "SELECT COUNT(*) as c FROM articles WHERE feed_id = ? AND (category IS NULL OR category_slug IS NULL)",
+            (feed_id,),
+        )
+        self.assertEqual(remaining_after_limit["c"], 1090)
+
+        # Backfill all remaining in 500-row execute_many batches
+        with patch.object(self.db, "execute_many", wraps=self.db.execute_many) as spy_many:
+            await backfill_article_categories(self.db)
+            self.assertEqual(spy_many.call_count, 3)  # 500 + 500 + 90
+
+        remaining = await self.db.fetch_one(
+            "SELECT COUNT(*) as c FROM articles WHERE feed_id = ? AND (category IS NULL OR category_slug IS NULL)",
+            (feed_id,),
+        )
+        self.assertEqual(remaining["c"], 0)
+
+        ai_count = await self.db.fetch_one(
+            "SELECT COUNT(*) as c FROM articles WHERE feed_id = ? AND category_slug = 'ai-machine-learning'",
+            (feed_id,),
+        )
+        self.assertGreater(ai_count["c"], 300)
+
+    async def test_feed_poller_dedup_and_semaphore(self):
+        self.assertIsInstance(feed_poller._active_feed_polls, set)
+        self.assertIsInstance(feed_poller._poll_semaphore, asyncio.Semaphore)
+
+        in_flight = 0
+        max_concurrent = 0
+
+        async def fake_impl(fid: int):
+            nonlocal in_flight, max_concurrent
+            in_flight += 1
+            max_concurrent = max(max_concurrent, in_flight)
+            await asyncio.sleep(0.02)
+            in_flight -= 1
+            if fid == 9992:
+                raise RuntimeError("boom")
+
+        with patch.object(feed_poller, "_poll_single_feed_impl", side_effect=fake_impl):
+            results = await asyncio.gather(
+                *(feed_poller.poll_single_feed(fid) for fid in range(9990, 9997)),
+                return_exceptions=True,
+            )
+
+        self.assertLessEqual(max_concurrent, 3)
+        self.assertEqual(len(feed_poller._active_feed_polls), 0)
+        self.assertIsInstance(results[2], RuntimeError)

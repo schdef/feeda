@@ -1,3 +1,4 @@
+import asyncio
 import re
 import logging
 from typing import List, Dict, Any, Optional, Set
@@ -298,15 +299,50 @@ def classify_article_category(title: Optional[str] = "", summary: Optional[str] 
     return (topic_info["name"], topic_info["emoji"], topic_info["slug"])
 
 
-async def backfill_article_categories(database):
+async def backfill_article_categories(database, limit: int | None = None):
     """Backfills category columns for articles that do not have category assigned."""
+    if limit is not None and limit <= 0:
+        return
     try:
-        rows = await database.fetch_all("SELECT id, title, summary, content FROM articles WHERE category IS NULL OR category_slug IS NULL LIMIT 500")
-        if not rows:
-            return
-        for r in rows:
-            cat_name, cat_emoji, cat_slug = classify_article_category(r.get('title'), r.get('summary'), r.get('content'))
-            await database.execute("UPDATE articles SET category = ?, category_emoji = ?, category_slug = ? WHERE id = ?", (cat_name, cat_emoji, cat_slug, r['id']))
+        batch_size = 500
+        last_id = 0
+        processed = 0
+        query = "UPDATE articles SET category = ?, category_emoji = ?, category_slug = ? WHERE id = ?"
+
+        while True:
+            fetch_limit = batch_size if limit is None else min(batch_size, limit - processed)
+            if fetch_limit <= 0:
+                break
+
+            rows = await database.fetch_all(
+                "SELECT id, title, summary, content FROM articles WHERE (category IS NULL OR category_slug IS NULL) AND id > ? ORDER BY id ASC LIMIT ?",
+                (last_id, fetch_limit),
+            )
+            if not rows:
+                break
+
+            updates = []
+            for r in rows:
+                cat_name, cat_emoji, cat_slug = classify_article_category(
+                    r.get('title'), r.get('summary'), r.get('content')
+                )
+                updates.append((cat_name, cat_emoji, cat_slug, r['id']))
+
+            if hasattr(database, "execute_many"):
+                await database.execute_many(query, updates)
+            elif getattr(database, "_conn", None) is not None:
+                await database._conn.executemany(query, updates)
+                await database._conn.commit()
+            else:
+                for params in updates:
+                    await database.execute(query, params)
+
+            last_id = rows[-1]['id']
+            processed += len(rows)
+
+            if len(rows) < fetch_limit or (limit is not None and processed >= limit):
+                break
+            await asyncio.sleep(0)
     except Exception as e:
         logger.warning(f"Notice during article category backfill: {e}")
 

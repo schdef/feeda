@@ -18,6 +18,22 @@ from .llm_dedup import cluster_unclustered_articles_background
 
 logger = logging.getLogger(__name__)
 
+_active_feed_polls: set[int] = set()
+_poll_semaphore = asyncio.Semaphore(3)
+_poll_semaphore_loop = None
+
+
+def _get_poll_semaphore() -> asyncio.Semaphore:
+    global _poll_semaphore, _poll_semaphore_loop
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return _poll_semaphore
+    if _poll_semaphore_loop is not None and _poll_semaphore_loop is not loop:
+        _poll_semaphore = asyncio.Semaphore(3)
+    _poll_semaphore_loop = loop
+    return _poll_semaphore
+
 async def fetch_og_image(url: str) -> str | None:
     """Fetch OpenGraph image from article webpage if RSS feed has no media tags."""
     if not url or not url.startswith('http'):
@@ -189,6 +205,15 @@ async def fetch_feed_content(url: str, headers: dict) -> tuple[bytes, dict, bool
             raise Exception(f"Direct request failed ({direct_status or direct_err_msg}) and proxy fallbacks failed: {last_proxy_err}")
 
 async def poll_single_feed(feed_id: int):
+    _active_feed_polls.add(feed_id)
+    try:
+        async with _get_poll_semaphore():
+            await _poll_single_feed_impl(feed_id)
+    finally:
+        _active_feed_polls.discard(feed_id)
+
+
+async def _poll_single_feed_impl(feed_id: int):
     feed = await db.fetch_one("SELECT * FROM feeds WHERE id = ?", (feed_id,))
     if not feed: return
     
@@ -205,6 +230,10 @@ async def poll_single_feed(feed_id: int):
             return
             
         entries = parse_entries(content)
+        term_weights_map = None
+        feed_affinity_map = None
+        starred_counts_map = None
+
         for entry in entries:
             uhash = url_hash(entry['url'])
             guid = entry.get('guid')
@@ -264,8 +293,29 @@ async def poll_single_feed(feed_id: int):
             if not image_url:
                 image_url = await fetch_og_image(entry['url'])
 
+            if term_weights_map is None:
+                tw_rows = await db.fetch_all("SELECT term, positive_score, negative_score FROM term_weights")
+                term_weights_map = {
+                    r["term"]: (float(r["positive_score"]), float(r["negative_score"]))
+                    for r in tw_rows
+                }
+                fa_row = await db.fetch_one("SELECT affinity_score FROM feed_affinity WHERE feed_id = ?", (feed_id,))
+                feed_affinity_map = (
+                    {feed_id: float(fa_row["affinity_score"])}
+                    if fa_row and fa_row.get("affinity_score") is not None
+                    else {}
+                )
+                sc_row = await db.fetch_one("SELECT COUNT(*) as c FROM articles WHERE feed_id = ? AND is_starred = 1", (feed_id,))
+                starred_counts_map = {feed_id: int(sc_row["c"]) if sc_row and sc_row.get("c") else 0}
+
             entry['feed_id'] = feed_id
-            score = await score_article(entry, db)
+            score = await score_article(
+                entry,
+                db,
+                term_weights_map=term_weights_map,
+                feed_affinity_map=feed_affinity_map,
+                starred_counts_map=starred_counts_map,
+            )
 
             cat_name, cat_emoji, cat_slug = classify_article_category(
                 entry['title'], entry.get('summary'), entry.get('content')
@@ -354,8 +404,10 @@ async def feed_poller_task():
                     except:
                         poll = True
                         
-                if poll:
-                    asyncio.create_task(poll_single_feed(feed['id']))
+                if poll and feed['id'] not in _active_feed_polls:
+                    _active_feed_polls.add(feed['id'])
+                    task = asyncio.create_task(poll_single_feed(feed['id']))
+                    task.add_done_callback(lambda _t, fid=feed['id']: _active_feed_polls.discard(fid))
                     
         except Exception as e:
             logger.error(f"Poller loop error: {e}")

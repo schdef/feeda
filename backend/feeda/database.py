@@ -1,3 +1,4 @@
+import asyncio
 import aiosqlite
 import os
 import logging
@@ -9,6 +10,23 @@ class Database:
     def __init__(self):
         self.db_path = get_settings().db_path
         self._conn = None
+        self._write_lock = asyncio.Lock()
+        self._write_lock_loop = None
+
+    def _get_write_lock(self) -> asyncio.Lock:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        lock = getattr(self, "_write_lock", None)
+        lock_loop = getattr(self, "_write_lock_loop", None)
+        if lock is None or (loop is not None and lock_loop is not None and lock_loop is not loop):
+            lock = asyncio.Lock()
+            self._write_lock = lock
+            self._write_lock_loop = loop
+        elif lock_loop is None and loop is not None:
+            self._write_lock_loop = loop
+        return lock
 
     async def connect(self):
         self._conn = await aiosqlite.connect(self.db_path)
@@ -48,13 +66,25 @@ class Database:
         if self._conn:
             await self._conn.close()
             self._conn = None
+        self._write_lock = asyncio.Lock()
+        self._write_lock_loop = None
 
     async def execute(self, query: str, params: tuple = ()):
         if not self._conn:
             await self.connect()
-        async with self._conn.execute(query, params) as cursor:
+        async with self._get_write_lock():
+            async with self._conn.execute(query, params) as cursor:
+                await self._conn.commit()
+                return cursor.lastrowid
+
+    async def execute_many(self, query: str, params_list: list[tuple]):
+        if not params_list:
+            return
+        if not self._conn:
+            await self.connect()
+        async with self._get_write_lock():
+            await self._conn.executemany(query, params_list)
             await self._conn.commit()
-            return cursor.lastrowid
 
     async def fetch_one(self, query: str, params: tuple = ()):
         if not self._conn:
@@ -76,33 +106,34 @@ class Database:
             logger.warning(f"Migrations directory {migrations_dir} not found.")
             return
 
-        await self._conn.execute("""
-            CREATE TABLE IF NOT EXISTS _migrations (
-                filename TEXT PRIMARY KEY,
-                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        await self._conn.commit()
+        async with self._get_write_lock():
+            await self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS _migrations (
+                    filename TEXT PRIMARY KEY,
+                    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await self._conn.commit()
 
-        async with self._conn.execute("SELECT filename FROM _migrations") as cur:
-            applied = {r[0] for r in await cur.fetchall()}
+            async with self._conn.execute("SELECT filename FROM _migrations") as cur:
+                applied = {r[0] for r in await cur.fetchall()}
 
-        for filename in sorted(os.listdir(migrations_dir)):
-            if filename.endswith(".sql"):
-                if filename in applied:
-                    continue
-                filepath = os.path.join(migrations_dir, filename)
-                with open(filepath, "r") as f:
-                    script = f.read()
-                try:
-                    await self._conn.executescript(script)
-                except Exception as e:
-                    if "duplicate column name" in str(e).lower():
-                        logger.debug(f"Columns in migration {filename} already exist: {e}")
-                    else:
-                        raise
-                await self._conn.execute("INSERT OR IGNORE INTO _migrations (filename) VALUES (?)", (filename,))
-                await self._conn.commit()
-                logger.info(f"Ran migration: {filename}")
+            for filename in sorted(os.listdir(migrations_dir)):
+                if filename.endswith(".sql"):
+                    if filename in applied:
+                        continue
+                    filepath = os.path.join(migrations_dir, filename)
+                    with open(filepath, "r") as f:
+                        script = f.read()
+                    try:
+                        await self._conn.executescript(script)
+                    except Exception as e:
+                        if "duplicate column name" in str(e).lower():
+                            logger.debug(f"Columns in migration {filename} already exist: {e}")
+                        else:
+                            raise
+                    await self._conn.execute("INSERT OR IGNORE INTO _migrations (filename) VALUES (?)", (filename,))
+                    await self._conn.commit()
+                    logger.info(f"Ran migration: {filename}")
 
 db = Database()
