@@ -4,13 +4,36 @@ from datetime import datetime
 from dateutil import parser
 
 STOP_WORDS = {
+    # English functional / filler words
     'the', 'and', 'for', 'with', 'that', 'this', 'have', 'from', 'but', 'not',
-    'are', 'was', 'were', 'will', 'by', 'der', 'die', 'das', 'und', 'fuer', 'für',
-    'mit', 'auf', 'von', 'den', 'dem', 'ein', 'eine', 'einer', 'eines', 'einem',
-    'einen', 'ist', 'sind', 'war', 'nicht', 'wie', 'als', 'ueber', 'über',
-    'nach', 'bei', 'aus', 'durch', 'oder', 'aber', 'auch', 'zur', 'zum',
-    'sich', 'dass'
+    'are', 'was', 'were', 'will', 'by', 'its', 'it', 'has', 'had', 'having',
+    'more', 'most', 'can', 'could', 'would', 'shall', 'should', 'may', 'might',
+    'must', 'one', 'two', 'three', 'first', 'after', 'before', 'over', 'under',
+    'into', 'onto', 'than', 'then', 'been', 'being', 'there', 'their', 'they',
+    'them', 'these', 'those', 'about', 'also', 'such', 'some', 'any', 'other',
+    'only', 'very', 'just', 'even', 'now', 'new', 'out', 'how', 'what',
+    'when', 'where', 'which', 'who', 'whom', 'why', 'all', 'both', 'each', 'few',
+    # German functional / filler words
+    'der', 'die', 'das', 'und', 'fuer', 'für', 'mit', 'auf', 'von', 'den',
+    'dem', 'ein', 'eine', 'einer', 'eines', 'einem', 'einen', 'ist', 'sind',
+    'war', 'nicht', 'wie', 'als', 'ueber', 'über', 'nach', 'bei', 'aus',
+    'durch', 'oder', 'aber', 'auch', 'zur', 'zum', 'sich', 'dass', 'hat',
+    'haben', 'hatte', 'hatten', 'mehr', 'kann', 'können', 'koennen', 'konnte',
+    'konnten', 'muss', 'müssen', 'muessen', 'musste', 'mussten', 'soll',
+    'sollen', 'sollte', 'sollten', 'will', 'wollen', 'wollte', 'wollten',
+    'wird', 'werden', 'wurde', 'wurden', 'dieser', 'dieses', 'diesem', 'diesen',
+    'diese', 'jede', 'jeder', 'jedes', 'jedem', 'jeden', 'alle', 'aller',
+    'alles', 'allem', 'allen', 'noch', 'schon', 'sehr', 'immer', 'wieder',
+    'beim', 'unter', 'vor', 'zwischen', 'gegen', 'ohne', 'sein', 'seine',
+    'seiner', 'seinem', 'seinen', 'seines', 'ihr', 'ihre', 'ihrer', 'ihrem',
+    'ihren', 'ihres', 'wir', 'uns', 'unser', 'unsere', 'euch', 'euer', 'eure'
 }
+
+async def prune_stop_words_from_term_weights(db):
+    if not STOP_WORDS:
+        return
+    placeholders = ",".join("?" for _ in STOP_WORDS)
+    await db.execute(f"DELETE FROM term_weights WHERE term IN ({placeholders})", tuple(STOP_WORDS))
 
 def extract_terms(text: str) -> list:
     if not text:
@@ -101,6 +124,11 @@ async def score_article(article: dict, db) -> float:
         if row:
             s_bayes += (float(row['positive_score']) - float(row['negative_score']))
 
+    if terms:
+        # Log-scaled length damping: rewards rich content without letting long text overwhelm concise news
+        norm_factor = math.log(10 + len(terms)) / math.log(25)  # ~1.0 around 15 terms
+        s_bayes = s_bayes / max(0.5, norm_factor)
+
     s_freshness = 1.0
     if article.get('published_at'):
         try:
@@ -149,5 +177,5 @@ async def rescore_articles(db):
         await db.execute("UPDATE articles SET interest_score = ? WHERE id = ?", (score, a['id']))
 
 async def apply_decay(db):
-    await db.execute("UPDATE term_weights SET positive_score = positive_score * 0.97, negative_score = negative_score * 0.97")
+    await db.execute("UPDATE term_weights SET positive_score = positive_score * 0.985, negative_score = negative_score * 0.985")
 

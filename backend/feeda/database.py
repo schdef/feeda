@@ -22,7 +22,7 @@ class Database:
         await self._conn.execute("PRAGMA foreign_keys = ON;")
         await self._conn.commit()
 
-        # Schema compatibility check for ai_summary and story_signature
+        # Schema compatibility check for ai_summary, story_signature, and category columns
         try:
             async with self._conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='articles'") as cur:
                 table_exists = await cur.fetchone()
@@ -34,6 +34,12 @@ class Database:
                     await self._conn.execute("ALTER TABLE articles ADD COLUMN ai_summary TEXT;")
                 if "story_signature" not in existing_cols:
                     await self._conn.execute("ALTER TABLE articles ADD COLUMN story_signature TEXT;")
+                if "category" not in existing_cols:
+                    await self._conn.execute("ALTER TABLE articles ADD COLUMN category TEXT DEFAULT NULL;")
+                if "category_slug" not in existing_cols:
+                    await self._conn.execute("ALTER TABLE articles ADD COLUMN category_slug TEXT DEFAULT NULL;")
+                if "category_emoji" not in existing_cols:
+                    await self._conn.execute("ALTER TABLE articles ADD COLUMN category_emoji TEXT DEFAULT NULL;")
                 await self._conn.commit()
         except Exception as e:
             logger.warning(f"Notice during schema column check: {e}")
@@ -88,7 +94,13 @@ class Database:
                 filepath = os.path.join(migrations_dir, filename)
                 with open(filepath, "r") as f:
                     script = f.read()
-                await self._conn.executescript(script)
+                try:
+                    await self._conn.executescript(script)
+                except Exception as e:
+                    if "duplicate column name" in str(e).lower():
+                        logger.debug(f"Columns in migration {filename} already exist: {e}")
+                    else:
+                        raise
                 await self._conn.execute("INSERT OR IGNORE INTO _migrations (filename) VALUES (?)", (filename,))
                 await self._conn.commit()
                 logger.info(f"Ran migration: {filename}")

@@ -15,7 +15,7 @@ from ..models import (
 from ..database import db
 from ..services.ranker import update_term_weights, rescore_articles
 from ..services.feed_parser import decode_html_text
-from .articles import compute_likelihood_tier, get_likelihood_thresholds
+from .articles import compute_likelihood_tier, get_likelihood_thresholds, format_article_dict
 
 router = APIRouter(prefix="/api/boards", tags=["boards"])
 
@@ -143,17 +143,11 @@ async def get_board_articles(
     """
     items = await db.fetch_all(query, (board_id, limit, offset))
     for item in items:
-        item['is_read'] = bool(item['is_read'])
-        item['is_starred'] = bool(item['is_starred'])
-        item['feed_title'] = decode_html_text(item.get('feed_title')) or 'Feed'
-        item['title'] = decode_html_text(item.get('title'))
-        item['summary'] = decode_html_text(item.get('summary'))
-        item['cluster_sources'] = []
-        item['cluster_count'] = item.get('cluster_count') or 1
-        item['interest_score'] = float(item.get('interest_score') or 0.0)
-        item['likelihood_tier'] = compute_likelihood_tier(item['interest_score'], likely_threshold, high_threshold)
-        item['board_note'] = item.get('board_note')
-        item['board_added_at'] = str(item.get('board_added_at')) if item.get('board_added_at') else None
+        board_note = item.get('board_note')
+        board_added_at = str(item.get('board_added_at')) if item.get('board_added_at') else None
+        format_article_dict(item, likely_threshold, high_threshold)
+        item['board_note'] = board_note
+        item['board_added_at'] = board_added_at
 
     count_row = await db.fetch_one("SELECT COUNT(*) as total FROM board_articles WHERE board_id = ?", (board_id,))
     total = count_row['total'] if count_row else 0

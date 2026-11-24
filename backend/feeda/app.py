@@ -24,6 +24,10 @@ async def lifespan(app: FastAPI):
     discover_plugins(get_settings().plugins_dir)
     from .services.seeder import seed_database
     await seed_database()
+    from .services.ranker import prune_stop_words_from_term_weights
+    await prune_stop_words_from_term_weights(db)
+    from .services.interest_grouper import backfill_article_categories
+    await backfill_article_categories(db)
     asyncio.create_task(feed_poller_task())
     yield
     # Shutdown

@@ -98,6 +98,16 @@ export function ArticleCard({ article, viewMode }: Props) {
           </span>
         </div>
 
+        {article.category && (
+          <span 
+            className="inline-flex items-center gap-1 text-[10px] font-medium bg-gray-800/80 text-gray-300 border border-gray-700/60 px-1.5 py-0.5 rounded shrink-0"
+            title={`Category: ${article.category}`}
+          >
+            {article.category_emoji && <span>{article.category_emoji}</span>}
+            <span className="truncate max-w-[120px]">{article.category}</span>
+          </span>
+        )}
+
         {article.board_note && (
           <span className="inline-flex items-center gap-1 text-[10px] bg-amber-500/15 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded shrink-0" title={`Note: ${article.board_note}`}>
             <StickyNote size={10} />
@@ -206,6 +216,16 @@ export function ArticleCard({ article, viewMode }: Props) {
             <span>{article.feed_title}</span>
             <span>/</span>
             <span>{timeAgo}</span>
+
+            {article.category && (
+              <span 
+                className="inline-flex items-center gap-1 text-[10px] font-medium bg-gray-800/80 text-gray-300 border border-gray-700/60 px-1.5 py-0.5 rounded shrink-0"
+                title={`Category: ${article.category}`}
+              >
+                {article.category_emoji && <span>{article.category_emoji}</span>}
+                <span className="truncate max-w-[120px]">{article.category}</span>
+              </span>
+            )}
 
             {/* Likelihood badge */}
             {likelihoodBadge}

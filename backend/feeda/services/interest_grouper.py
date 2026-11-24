@@ -283,6 +283,34 @@ def classify_article_topic(article: Dict[str, Any]) -> str:
     return "general-other"
 
 
+def classify_article_category(title: Optional[str] = "", summary: Optional[str] = "", content: Optional[str] = "") -> tuple[str, str, str]:
+    """
+    Classifies an article into a top-level category based on its title, summary, and content.
+    Returns (name, emoji, slug).
+    """
+    article = {
+        "title": title or "",
+        "summary": summary or (content[:500] if content else ""),
+        "content": content or ""
+    }
+    slug = classify_article_topic(article)
+    topic_info = TOPIC_CATALOG.get(slug, GENERAL_TOPIC)
+    return (topic_info["name"], topic_info["emoji"], topic_info["slug"])
+
+
+async def backfill_article_categories(database):
+    """Backfills category columns for articles that do not have category assigned."""
+    try:
+        rows = await database.fetch_all("SELECT id, title, summary, content FROM articles WHERE category IS NULL OR category_slug IS NULL LIMIT 500")
+        if not rows:
+            return
+        for r in rows:
+            cat_name, cat_emoji, cat_slug = classify_article_category(r.get('title'), r.get('summary'), r.get('content'))
+            await database.execute("UPDATE articles SET category = ?, category_emoji = ?, category_slug = ? WHERE id = ?", (cat_name, cat_emoji, cat_slug, r['id']))
+    except Exception as e:
+        logger.warning(f"Notice during article category backfill: {e}")
+
+
 async def build_interest_board(db, max_groups: int = 5) -> Dict[str, Any]:
     """
     Builds an Interest Board grouping unread and starred (read-later) articles into top topical clusters.
@@ -339,6 +367,12 @@ async def build_interest_board(db, max_groups: int = 5) -> Dict[str, Any]:
 
         if not item.get("story_signature"):
             item["story_signature"] = generate_story_signature(item.get("title") or "", item.get("summary") or "")
+
+        if not item.get("category") or not item.get("category_slug"):
+            c_name, c_emoji, c_slug = classify_article_category(item.get("title"), item.get("summary"), item.get("content"))
+            item["category"] = item.get("category") or c_name
+            item["category_emoji"] = item.get("category_emoji") or c_emoji
+            item["category_slug"] = item.get("category_slug") or c_slug
 
     # Group articles into topic buckets
     grouped_articles: Dict[str, List[Dict[str, Any]]] = {t["slug"]: [] for t in ALL_TOPICS}

@@ -70,6 +70,9 @@ class ArticleResponse(BaseModel):
     board_added_at: Optional[Any] = None
     ai_summary: Optional[str] = None
     story_signature: Optional[str] = None
+    category: Optional[str] = None
+    category_slug: Optional[str] = None
+    category_emoji: Optional[str] = None
 
 class ArticleListResponse(BaseModel):
     articles: List[ArticleResponse]

@@ -47,6 +47,9 @@ export interface Article {
   board_added_at?: string | null;
   ai_summary?: string | null;
   story_signature?: string | null;
+  category?: string | null;
+  category_slug?: string | null;
+  category_emoji?: string | null;
 }
 
 export interface Board {

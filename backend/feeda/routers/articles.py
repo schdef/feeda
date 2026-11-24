@@ -43,15 +43,16 @@ async def get_likelihood_thresholds(db_instance=None):
         scores = [float(r['interest_score']) for r in rows if r.get('interest_score') is not None]
 
     if not scores or len(scores) < 10:
-        high_threshold = max(likely_threshold + 1.0, max_score)
+        high_threshold = likely_threshold + 0.5
     else:
-        top_20_idx = max(1, int(len(scores) * 0.20))
-        spread_above = max_score - likely_threshold
-        min_high = likely_threshold + max(1.0, spread_above * 0.25 if spread_above > 0 else 1.0)
-        high_threshold = max(scores[top_20_idx], min_high)
+        # Top 25% percentile (75th percentile of unread articles)
+        top_25_idx = max(1, int(len(scores) * 0.25))
+        p75_score = scores[top_25_idx]
+        # Ensure high_threshold is meaningfully above likely_threshold but strictly bounded by actual quantile
+        high_threshold = max(p75_score, likely_threshold + 0.5)
 
     if high_threshold <= likely_threshold:
-        high_threshold = likely_threshold + 1.0
+        high_threshold = likely_threshold + 0.5
 
     return likely_threshold, high_threshold, min_score, max_score
 
@@ -66,6 +67,37 @@ def compute_likelihood_tier(score: float, likely_threshold: float, high_threshol
         return "high"
     else:
         return "medium"
+
+def format_article_dict(item: dict, likely_threshold: float = 0.0, high_threshold: float = 0.0, default_tier: Optional[str] = None) -> dict:
+    from ..services.interest_grouper import classify_article_category
+    item['is_read'] = bool(item.get('is_read', False))
+    item['is_starred'] = bool(item.get('is_starred', False))
+    item['feed_title'] = decode_html_text(item.get('feed_title')) or 'Feed'
+    item['title'] = decode_html_text(item.get('title'))
+    item['summary'] = decode_html_text(item.get('summary'))
+    if item.get('author'):
+        item['author'] = decode_html_text(item.get('author'))
+    if item.get('content'):
+        item['content'] = decode_html_text(item.get('content'))
+    raw_sources = item.get('other_cluster_sources')
+    if raw_sources:
+        item['cluster_sources'] = [decode_html_text(s.strip()) for s in raw_sources.split(',') if s.strip()]
+    elif 'cluster_sources' not in item:
+        item['cluster_sources'] = []
+    item['cluster_count'] = item.get('cluster_count') or 1
+    item['interest_score'] = float(item.get('interest_score') or 0.0)
+    if default_tier:
+        item['likelihood_tier'] = default_tier
+    else:
+        item['likelihood_tier'] = compute_likelihood_tier(item['interest_score'], likely_threshold, high_threshold)
+
+    if not item.get('category') or not item.get('category_slug'):
+        c_name, c_emoji, c_slug = classify_article_category(item.get('title'), item.get('summary'), item.get('content'))
+        item['category'] = item.get('category') or c_name
+        item['category_emoji'] = item.get('category_emoji') or c_emoji
+        item['category_slug'] = item.get('category_slug') or c_slug
+
+    return item
 
 @router.get("", response_model=ArticleListResponse)
 async def list_articles(
@@ -178,19 +210,7 @@ async def list_articles(
         items = await db.fetch_all(query, tuple(params + [limit, offset]))
 
     for item in items:
-        item['is_read'] = bool(item['is_read'])
-        item['is_starred'] = bool(item['is_starred'])
-        item['feed_title'] = decode_html_text(item.get('feed_title')) or 'Feed'
-        item['title'] = decode_html_text(item.get('title'))
-        item['summary'] = decode_html_text(item.get('summary'))
-        raw_sources = item.get('other_cluster_sources')
-        if raw_sources:
-            item['cluster_sources'] = [decode_html_text(s.strip()) for s in raw_sources.split(',') if s.strip()]
-        else:
-            item['cluster_sources'] = []
-        item['cluster_count'] = item.get('cluster_count') or 1
-        item['interest_score'] = float(item.get('interest_score') or 0.0)
-        item['likelihood_tier'] = compute_likelihood_tier(item['interest_score'], likely_threshold, high_threshold)
+        format_article_dict(item, likely_threshold, high_threshold)
         
     if effective_dedup:
         items = deduplicate_articles_sync(items)
@@ -288,19 +308,7 @@ async def for_you(
         items = await db.fetch_all(query, tuple(params + [limit, offset]))
 
     for item in items:
-        item['is_read'] = bool(item['is_read'])
-        item['is_starred'] = bool(item['is_starred'])
-        item['feed_title'] = decode_html_text(item.get('feed_title')) or 'Feed'
-        item['title'] = decode_html_text(item.get('title'))
-        item['summary'] = decode_html_text(item.get('summary'))
-        raw_sources = item.get('other_cluster_sources')
-        if raw_sources:
-            item['cluster_sources'] = [decode_html_text(s.strip()) for s in raw_sources.split(',') if s.strip()]
-        else:
-            item['cluster_sources'] = []
-        item['cluster_count'] = item.get('cluster_count') or 1
-        item['interest_score'] = float(item.get('interest_score') or 0.0)
-        item['likelihood_tier'] = 'high'
+        format_article_dict(item, likely_threshold=threshold, high_threshold=threshold, default_tier='high')
 
     if dedup:
         items = deduplicate_articles_sync(items)
@@ -354,15 +362,7 @@ async def search_articles(q: str, limit: int = 50):
     """
     items = await db.fetch_all(query, (sanitized_q, limit))
     for item in items:
-        item['is_read'] = bool(item['is_read'])
-        item['is_starred'] = bool(item['is_starred'])
-        item['feed_title'] = decode_html_text(item.get('feed_title')) or 'Feed'
-        item['title'] = decode_html_text(item.get('title'))
-        item['summary'] = decode_html_text(item.get('summary'))
-        item['cluster_count'] = 1
-        item['cluster_sources'] = []
-        item['interest_score'] = float(item.get('interest_score') or 0.0)
-        item['likelihood_tier'] = compute_likelihood_tier(item['interest_score'], likely_threshold, high_threshold)
+        format_article_dict(item, likely_threshold, high_threshold)
     
     return {"articles": items, "total": len(items)}
 
@@ -401,22 +401,7 @@ async def get_article(article_id: int):
         WHERE a.id = ?
     """, (article_id,))
     if item:
-        item['is_read'] = bool(item['is_read'])
-        item['is_starred'] = bool(item['is_starred'])
-        item['feed_title'] = decode_html_text(item.get('feed_title')) or 'Feed'
-        item['title'] = decode_html_text(item.get('title'))
-        item['summary'] = decode_html_text(item.get('summary'))
-        item['author'] = decode_html_text(item.get('author'))
-        if item.get('content'):
-            item['content'] = decode_html_text(item['content'])
-        raw_sources = item.get('other_cluster_sources')
-        if raw_sources:
-            item['cluster_sources'] = [decode_html_text(s.strip()) for s in raw_sources.split(',') if s.strip()]
-        else:
-            item['cluster_sources'] = []
-        item['cluster_count'] = item.get('cluster_count') or 1
-        item['interest_score'] = float(item.get('interest_score') or 0.0)
-        item['likelihood_tier'] = compute_likelihood_tier(item['interest_score'], likely_threshold, high_threshold)
+        format_article_dict(item, likely_threshold, high_threshold)
     return item
 
 @router.get("/{article_id}/boards", response_model=ArticleBoardsResponse)

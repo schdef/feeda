@@ -11,6 +11,7 @@ from ..database import db
 from .feed_parser import parse_entries, decode_html_text
 from .dedup import find_duplicate, url_hash, title_shingles, compute_simhash, update_cluster_primary
 from .ai_summary import analyze_article
+from .interest_grouper import classify_article_category
 from .ranker import score_article, apply_decay, rescore_articles
 from .plugin_manager import hook_manager
 from .llm_dedup import cluster_unclustered_articles_background
@@ -228,12 +229,16 @@ async def poll_single_feed(feed_id: int):
                 entry['author'] = decode_html_text(entry.get('author'))
                 if entry.get('content'):
                     entry['content'] = decode_html_text(entry['content'])
+                cat_name, cat_emoji, cat_slug = classify_article_category(
+                    entry['title'], entry.get('summary'), entry.get('content')
+                )
                 try:
                     await db.execute("""
                         UPDATE articles 
-                        SET title = ?, summary = ?, content = ?, published_at = ?, url = ?, url_hash = ?
+                        SET title = ?, summary = ?, content = ?, published_at = ?, url = ?, url_hash = ?,
+                            category = COALESCE(category, ?), category_emoji = COALESCE(category_emoji, ?), category_slug = COALESCE(category_slug, ?)
                         WHERE id = ?
-                    """, (entry['title'], entry['summary'], entry.get('content'), entry['published_at'], entry['url'], uhash, existing_article['id']))
+                    """, (entry['title'], entry['summary'], entry.get('content'), entry['published_at'], entry['url'], uhash, cat_name, cat_emoji, cat_slug, existing_article['id']))
                 except Exception as e:
                     logger.warning(f"Error updating article {existing_article['id']} in feed {feed_id}: {e}")
                 continue
@@ -262,11 +267,27 @@ async def poll_single_feed(feed_id: int):
             entry['feed_id'] = feed_id
             score = await score_article(entry, db)
 
+            cat_name, cat_emoji, cat_slug = classify_article_category(
+                entry['title'], entry.get('summary'), entry.get('content')
+            )
+            entry['category'] = cat_name
+            entry['category_emoji'] = cat_emoji
+            entry['category_slug'] = cat_slug
+
             try:
                 await db.execute("""
-                    INSERT INTO articles (feed_id, cluster_id, guid, url, url_hash, title, author, summary, content, image_url, published_at, title_shingles, content_simhash, interest_score, ai_summary, story_signature)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (feed_id, cluster_id, entry['guid'], entry['url'], uhash, entry['title'], entry['author'], entry['summary'], entry['content'], image_url, entry['published_at'], shingles, simhash_val, score, entry['ai_summary'], entry['story_signature']))
+                    INSERT INTO articles (
+                        feed_id, cluster_id, guid, url, url_hash, title, author, summary, content, 
+                        image_url, published_at, title_shingles, content_simhash, interest_score, 
+                        ai_summary, story_signature, category, category_emoji, category_slug
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    feed_id, cluster_id, entry['guid'], entry['url'], uhash, entry['title'], 
+                    entry['author'], entry['summary'], entry['content'], image_url, 
+                    entry['published_at'], shingles, simhash_val, score, entry['ai_summary'], 
+                    entry['story_signature'], cat_name, cat_emoji, cat_slug
+                ))
 
                 if cluster_id:
                     await update_cluster_primary(db, cluster_id)
@@ -302,7 +323,7 @@ async def feed_poller_task():
     while True:
         try:
             now = datetime.utcnow()
-            if (now - last_decay_time).total_seconds() >= 3600 * 2:
+            if (now - last_decay_time).total_seconds() >= 3600 * 12:
                 await apply_decay(db)
                 await rescore_articles(db)
                 last_decay_time = now
